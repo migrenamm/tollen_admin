@@ -1,0 +1,872 @@
+import { useEffect, useState, useRef } from 'react';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
+import { Order, OrderStatus, Receipt, ReceiptItem, StaffProfile } from '../types';
+import { formatDate } from '../lib/utils';
+import { notifyUser } from '../lib/pushNotifications';
+import QRScanner from '../components/QRScanner';
+import OrderReceipt from '../components/OrderReceipt';
+
+const STATUS_COLORS: Record<OrderStatus, string> = {
+  pending:   'bg-yellow-100 text-yellow-800',
+  confirmed: 'bg-blue-100 text-blue-800',
+  picked_up: 'bg-indigo-100 text-indigo-800',
+  cleaning:  'bg-purple-100 text-purple-800',
+  ready:     'bg-teal-100 text-teal-800',
+  delivered: 'bg-green-100 text-green-800',
+  cancelled: 'bg-red-100 text-red-800',
+};
+
+const STATUS_TABS: (OrderStatus | 'all')[] = ['all', 'pending', 'confirmed', 'picked_up', 'cleaning', 'ready', 'delivered', 'cancelled'];
+
+const SERVICE_LABEL: Record<string, string> = {
+  wash: 'Wash', iron: 'Iron', wash_iron: 'Wash+Iron',
+};
+
+// Prices for unsorted receipt manual entry
+const ITEM_PRICES: Record<string, number> = {
+  shirt: 5, pants: 7, dress: 10, abaya: 12, jacket: 15, socks: 2, underwear: 2,
+};
+
+interface UnsortedItem { name_ar: string; name_en: string; quantity: number; unit_price: number; service_type: string; }
+
+export default function Orders() {
+  const { profile: adminProfile } = useAuth();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterStatus, setFilterStatus] = useState<OrderStatus | 'all'>('all');
+  const [search, setSearch] = useState('');
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [staffList, setStaffList] = useState<StaffProfile[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [showQRScanner, setShowQRScanner] = useState(false);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  // Unsorted receipt entry state
+  const [showUnsortedForm, setShowUnsortedForm] = useState(false);
+  const [unsortedItems, setUnsortedItems] = useState<UnsortedItem[]>([]);
+  const [unsortedNotes, setUnsortedNotes] = useState('');
+  // Assignment dropdown state
+  const [pickupDeliveryId, setPickupDeliveryId] = useState('');
+  const [cleanerId, setCleanerId] = useState('');
+  const [finalDeliveryId, setFinalDeliveryId] = useState('');
+
+  useEffect(() => {
+    loadOrders();
+    loadStaff();
+  }, []);
+
+  async function loadOrders() {
+    setLoading(true);
+    const { data } = await supabase
+      .from('orders')
+      .select(`
+        *,
+        profiles!user_id(id, phone, full_name, referral_code),
+        address:addresses(full_address, house_number, city, district),
+        items:order_items(*, item_name_ar, item_name_en, quantity, unit_price, subtotal, service_type),
+        receipt:receipts(*)
+      `)
+      .order('created_at', { ascending: false })
+      .limit(200);
+    setOrders((data ?? []) as Order[]);
+    setLoading(false);
+  }
+
+  async function loadStaff() {
+    const { data } = await supabase
+      .from('user_roles')
+      .select('user_id, role, profiles!user_id(id, full_name, phone)')
+      .in('role', ['delivery_man', 'cleaner']);
+    if (!data) return;
+    const map = new Map<string, StaffProfile>();
+    for (const row of data) {
+      const p = (row as any).profiles;
+      if (!p) continue;
+      const existing = map.get(p.id);
+      if (existing) {
+        existing.roles.push(row.role as any);
+      } else {
+        map.set(p.id, { id: p.id, full_name: p.full_name, phone: p.phone, roles: [row.role as any] });
+      }
+    }
+    setStaffList(Array.from(map.values()));
+  }
+
+  function selectOrder(order: Order) {
+    setSelectedOrder(order);
+    setReceipt((order as any).receipt ?? null);
+    setPickupDeliveryId('');
+    setCleanerId('');
+    setFinalDeliveryId('');
+    setShowUnsortedForm(false);
+    setUnsortedItems([]);
+    setUnsortedNotes('');
+  }
+
+  // ── Status transitions ──────────────────────────────────────────
+
+  async function confirmOrder() {
+    if (!selectedOrder) return;
+    setBusy(true);
+    const now = new Date().toISOString();
+    await supabase.from('orders').update({
+      status: 'confirmed',
+      confirmed_by: adminProfile?.id,
+      updated_at: now,
+    }).eq('id', selectedOrder.id);
+
+    // Auto-generate receipt for sorted orders
+    if (selectedOrder.type === 'sorted') {
+      const items = (selectedOrder as any).items ?? [];
+      const snapshot: ReceiptItem[] = items.map((i: any) => ({
+        name_ar: i.item_name_ar,
+        name_en: i.item_name_en,
+        quantity: i.quantity,
+        unit_price: i.unit_price,
+        service_type: i.service_type,
+        subtotal: i.subtotal,
+      }));
+      const subtotal = snapshot.reduce((s, i) => s + i.subtotal, 0);
+      const express_fee = selectedOrder.speed === 'express' ? +(subtotal * 0.3).toFixed(2) : 0;
+      const total = +(subtotal + express_fee).toFixed(2);
+      const { data: rec } = await supabase.from('receipts').insert({
+        order_id: selectedOrder.id,
+        items_snapshot: snapshot,
+        subtotal,
+        express_fee,
+        total,
+        issued_by: adminProfile?.id,
+      }).select().single();
+      setReceipt(rec as Receipt);
+    }
+
+    await notifyUser(
+      (selectedOrder.profiles as any)?.id ?? '',
+      'تم تأكيد طلبك',
+      `طلب #TOLL-${String(selectedOrder.order_number).padStart(4, '0')} تم تأكيده`,
+      selectedOrder.id
+    );
+    refreshSelected({ status: 'confirmed', confirmed_by: adminProfile?.id });
+    setBusy(false);
+  }
+
+  async function assignDelivery() {
+    if (!selectedOrder || !pickupDeliveryId) return;
+    setBusy(true);
+    await supabase.from('orders').update({
+      assigned_delivery_id: pickupDeliveryId,
+      delivery_assigned_by: adminProfile?.id,
+      updated_at: new Date().toISOString(),
+    }).eq('id', selectedOrder.id);
+
+    const staffMember = staffList.find(s => s.id === pickupDeliveryId);
+    await notifyUser(
+      (selectedOrder.profiles as any)?.id ?? '',
+      'مندوب في الطريق',
+      'مندوبنا في طريقه لاستلام ملابسك',
+      selectedOrder.id
+    );
+    refreshSelected({ assigned_delivery_id: pickupDeliveryId });
+    setPickupDeliveryId('');
+    setBusy(false);
+  }
+
+  // For unsorted orders: show item entry form
+  // For sorted orders: mark picked_up directly (delivery man scans via their own PWA view)
+  function openPickedUpFlow() {
+    if (!selectedOrder) return;
+    if (selectedOrder.type === 'unsorted') {
+      setShowUnsortedForm(true);
+    }
+  }
+
+  async function submitUnsortedReceipt() {
+    if (!selectedOrder || unsortedItems.length === 0) return;
+    setBusy(true);
+    const snapshot: ReceiptItem[] = unsortedItems.map(i => ({
+      ...i,
+      service_type: i.service_type as ReceiptItem['service_type'],
+      subtotal: +(i.quantity * i.unit_price).toFixed(2),
+    }));
+    const subtotal = snapshot.reduce((s, i) => s + i.subtotal, 0);
+    const express_fee = selectedOrder.speed === 'express' ? +(subtotal * 0.3).toFixed(2) : 0;
+    const total = +(subtotal + express_fee).toFixed(2);
+
+    const { data: rec } = await supabase.from('receipts').insert({
+      order_id: selectedOrder.id,
+      items_snapshot: snapshot,
+      subtotal,
+      express_fee,
+      total,
+      notes: unsortedNotes || null,
+      issued_by: adminProfile?.id,
+    }).select().single();
+
+    await supabase.from('orders').update({
+      status: 'picked_up',
+      picked_up_confirmed_by: adminProfile?.id,
+      updated_at: new Date().toISOString(),
+    }).eq('id', selectedOrder.id);
+
+    await notifyUser(
+      (selectedOrder.profiles as any)?.id ?? '',
+      'تم الاستلام',
+      'ملابسك وصلت وسيبدأ التنظيف قريباً',
+      selectedOrder.id
+    );
+
+    setReceipt(rec as Receipt);
+    setShowUnsortedForm(false);
+    refreshSelected({ status: 'picked_up', picked_up_confirmed_by: adminProfile?.id });
+    setBusy(false);
+  }
+
+  async function assignCleaner() {
+    if (!selectedOrder || !cleanerId) return;
+    setBusy(true);
+    await supabase.from('orders').update({
+      assigned_cleaner_id: cleanerId,
+      cleaner_assigned_by: adminProfile?.id,
+      status: 'cleaning',
+      updated_at: new Date().toISOString(),
+    }).eq('id', selectedOrder.id);
+
+    await notifyUser(
+      (selectedOrder.profiles as any)?.id ?? '',
+      'جاري التنظيف',
+      'ملابسك قيد التنظيف الآن',
+      selectedOrder.id
+    );
+    refreshSelected({ assigned_cleaner_id: cleanerId, status: 'cleaning' });
+    setCleanerId('');
+    setBusy(false);
+  }
+
+  // Admin scans the TOLL-XXXX QR on the bag to mark ready
+  async function handleReadyScan(scanned: string) {
+    setShowQRScanner(false);
+    if (!selectedOrder) return;
+    const expected = `TOLL-${String(selectedOrder.order_number).padStart(4, '0')}`;
+    if (scanned.trim().toUpperCase() !== expected) {
+      alert(`QR mismatch. Expected ${expected}, got ${scanned}`);
+      return;
+    }
+    setBusy(true);
+    await supabase.from('orders').update({
+      status: 'ready',
+      ready_confirmed_by: adminProfile?.id,
+      updated_at: new Date().toISOString(),
+    }).eq('id', selectedOrder.id);
+
+    await notifyUser(
+      (selectedOrder.profiles as any)?.id ?? '',
+      'طلبك جاهز',
+      `طلبك #${expected} جاهز وفي طريقه إليك`,
+      selectedOrder.id
+    );
+    refreshSelected({ status: 'ready', ready_confirmed_by: adminProfile?.id });
+    setBusy(false);
+  }
+
+  async function assignFinalDelivery() {
+    if (!selectedOrder || !finalDeliveryId) return;
+    if (!receipt?.is_paid) {
+      alert('Cannot assign delivery — order has not been paid yet. Mark as paid first.');
+      return;
+    }
+    setBusy(true);
+    await supabase.from('orders').update({
+      final_delivery_id: finalDeliveryId,
+      final_delivery_assigned_by: adminProfile?.id,
+      updated_at: new Date().toISOString(),
+    }).eq('id', selectedOrder.id);
+
+    await notifyUser(
+      (selectedOrder.profiles as any)?.id ?? '',
+      'في الطريق إليك',
+      'مندوبنا في طريقه لتوصيل ملابسك',
+      selectedOrder.id
+    );
+    refreshSelected({ final_delivery_id: finalDeliveryId });
+    setFinalDeliveryId('');
+    setBusy(false);
+  }
+
+  async function markPaid() {
+    if (!selectedOrder || !receipt) return;
+    setBusy(true);
+    const now = new Date().toISOString();
+    await supabase.from('receipts').update({ is_paid: true, paid_at: now }).eq('id', receipt.id);
+    await supabase.from('orders').update({ is_paid: true, updated_at: now }).eq('id', selectedOrder.id);
+    setReceipt(prev => prev ? { ...prev, is_paid: true, paid_at: now } : prev);
+    refreshSelected({ is_paid: true });
+    setBusy(false);
+  }
+
+  async function cancelOrder() {
+    if (!selectedOrder) return;
+    if (!confirm('Cancel this order?')) return;
+    setBusy(true);
+    await supabase.from('orders').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', selectedOrder.id);
+    refreshSelected({ status: 'cancelled' });
+    setBusy(false);
+  }
+
+  function refreshSelected(patch: Partial<Order>) {
+    setSelectedOrder(prev => prev ? { ...prev, ...patch } : prev);
+    setOrders(prev => prev.map(o => o.id === selectedOrder?.id ? { ...o, ...patch } : o));
+  }
+
+  // ── Unsorted item form helpers ──────────────────────────────────
+
+  function addUnsortedItem() {
+    setUnsortedItems(prev => [...prev, { name_ar: '', name_en: '', quantity: 1, unit_price: 5, service_type: 'wash' }]);
+  }
+
+  function updateUnsortedItem(idx: number, field: keyof UnsortedItem, value: string | number) {
+    setUnsortedItems(prev => prev.map((item, i) => i === idx ? { ...item, [field]: value } : item));
+  }
+
+  function removeUnsortedItem(idx: number) {
+    setUnsortedItems(prev => prev.filter((_, i) => i !== idx));
+  }
+
+  // ── Derived data ────────────────────────────────────────────────
+
+  const filtered = orders.filter(o => {
+    const matchStatus = filterStatus === 'all' || o.status === filterStatus;
+    const profile = (o.profiles as any);
+    const phone = profile?.phone ?? '';
+    const name = profile?.full_name ?? '';
+    const trackNum = `TOLL-${String(o.order_number).padStart(4, '0')}`;
+    const matchSearch = !search
+      || phone.includes(search)
+      || name.toLowerCase().includes(search.toLowerCase())
+      || trackNum.toLowerCase().includes(search.toLowerCase());
+    return matchStatus && matchSearch;
+  });
+
+  const deliveryStaff = staffList.filter(s => s.roles.includes('delivery_man'));
+  const cleanerStaff = staffList.filter(s => s.roles.includes('cleaner'));
+
+  const o = selectedOrder;
+  const profile = o ? (o.profiles as any) : null;
+  const trackingNum = o ? `TOLL-${String(o.order_number).padStart(4, '0')}` : '';
+
+  return (
+    <div className="flex h-full overflow-hidden">
+      {/* ── Left: Order List ── */}
+      <div className={`flex flex-col border-r border-gray-100 bg-white ${selectedOrder ? 'hidden md:flex md:w-[420px] lg:w-[480px]' : 'flex-1'}`}>
+        {/* Header */}
+        <div className="px-5 pt-6 pb-4 border-b border-gray-100">
+          <div className="flex items-center justify-between mb-3">
+            <h1 className="text-xl font-bold text-gray-900">Orders</h1>
+            <button onClick={loadOrders} className="text-gray-400 hover:text-primary text-sm font-medium">
+              🔄 Refresh
+            </button>
+          </div>
+          <input
+            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary"
+            placeholder="Search by phone, name or #TOLL..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+
+        {/* Status tabs */}
+        <div className="flex gap-1.5 px-5 py-3 overflow-x-auto border-b border-gray-100 flex-shrink-0">
+          {STATUS_TABS.map(s => {
+            const count = s === 'all' ? orders.length : orders.filter(o => o.status === s).length;
+            return (
+              <button
+                key={s}
+                onClick={() => setFilterStatus(s)}
+                className={`flex-shrink-0 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                  filterStatus === s
+                    ? 'bg-primary text-white'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                }`}
+              >
+                {s === 'all' ? 'All' : s.replace('_', ' ')} ({count})
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Order rows */}
+        <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
+          {loading ? (
+            <div className="flex justify-center py-12">
+              <div className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="text-center text-gray-400 text-sm py-12">No orders</p>
+          ) : filtered.map(order => {
+            const p = (order.profiles as any);
+            const tNum = `#TOLL-${String(order.order_number).padStart(4, '0')}`;
+            const isSelected = selectedOrder?.id === order.id;
+            return (
+              <button
+                key={order.id}
+                onClick={() => selectOrder(order)}
+                className={`w-full text-left px-5 py-3.5 hover:bg-gray-50 transition-colors ${isSelected ? 'bg-primary/5 border-r-2 border-primary' : ''}`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="font-bold text-sm text-gray-900">{tNum}</span>
+                      {order.speed === 'express' && (
+                        <span className="text-xs bg-orange-100 text-orange-700 rounded-full px-1.5 py-0.5 font-semibold">⚡</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500 truncate">{p?.full_name || p?.phone || '—'}</div>
+                  </div>
+                  <div className="flex flex-col items-end flex-shrink-0 gap-1">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${STATUS_COLORS[order.status]}`}>
+                      {order.status.replace('_', ' ')}
+                    </span>
+                    <span className="text-xs text-gray-400">{order.total} SAR</span>
+                  </div>
+                </div>
+                <div className="text-xs text-gray-400 mt-1">{formatDate(order.created_at)}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Right: Detail Panel ── */}
+      {selectedOrder ? (
+        <div className="flex-1 overflow-y-auto bg-gray-50">
+          <div className="max-w-2xl mx-auto p-5 space-y-4">
+            {/* Back on mobile */}
+            <button
+              className="md:hidden text-sm text-primary font-semibold flex items-center gap-1 mb-1"
+              onClick={() => setSelectedOrder(null)}
+            >
+              ← Back
+            </button>
+
+            {/* Order header */}
+            <div className="bg-white rounded-2xl p-5 shadow-sm">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">#{trackingNum}</h2>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${STATUS_COLORS[o!.status]}`}>
+                      {o!.status.replace('_', ' ')}
+                    </span>
+                    <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
+                      o!.type === 'unsorted' ? 'bg-amber-100 text-amber-700' : 'bg-teal-100 text-teal-700'
+                    }`}>
+                      {o!.type === 'unsorted' ? '🧺 Without Sorting' : '👕 Sorted'}
+                    </span>
+                    {o!.speed === 'express' && (
+                      <span className="text-xs px-2.5 py-1 rounded-full font-semibold bg-orange-100 text-orange-700">
+                        ⚡ Express
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <div className="text-xl font-bold text-primary">{o!.total} SAR</div>
+                  <div className="text-xs text-gray-400 mt-0.5">{formatDate(o!.created_at)}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Customer */}
+            <div className="bg-white rounded-2xl p-5 shadow-sm">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3">Customer</h3>
+              <div className="font-semibold text-gray-900">{profile?.full_name ?? '—'}</div>
+              <div className="text-sm text-gray-500">{profile?.phone ?? '—'}</div>
+              {(o as any).address && (
+                <div className="text-sm text-gray-500 mt-1">
+                  {(o as any).address.street}, {(o as any).address.district}, {(o as any).address.city}
+                </div>
+              )}
+            </div>
+
+            {/* Items (sorted only) */}
+            {o!.type === 'sorted' && (o as any).items && (o as any).items.length > 0 && (
+              <div className="bg-white rounded-2xl p-5 shadow-sm">
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3">Items</h3>
+                <div className="space-y-2">
+                  {(o as any).items.map((item: any, i: number) => (
+                    <div key={i} className="flex justify-between text-sm">
+                      <div>
+                        <span className="text-gray-800">{item.item_name_ar}</span>
+                        <span className="text-gray-400 text-xs ml-2">
+                          × {item.quantity} · {SERVICE_LABEL[item.service_type] ?? item.service_type}
+                        </span>
+                      </div>
+                      <span className="font-medium text-gray-900">{item.subtotal} SAR</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── Actions Panel ── */}
+            <div className="bg-white rounded-2xl p-5 shadow-sm space-y-4">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wide">Actions</h3>
+
+              {/* 1. Confirm (pending → confirmed) */}
+              {o!.status === 'pending' && (
+                <button
+                  onClick={confirmOrder}
+                  disabled={busy}
+                  className="w-full py-2.5 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                  ✅ Confirm Order
+                </button>
+              )}
+
+              {/* 2. Assign pickup delivery man (confirmed, no assigned_delivery_id yet) */}
+              {o!.status === 'confirmed' && !(o as any).assigned_delivery_id && (
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-gray-600">Assign Pickup Delivery Man</label>
+                  <div className="flex gap-2">
+                    <select
+                      className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                      value={pickupDeliveryId}
+                      onChange={e => setPickupDeliveryId(e.target.value)}
+                    >
+                      <option value="">Select staff...</option>
+                      {deliveryStaff.map(s => (
+                        <option key={s.id} value={s.id}>{s.full_name || s.phone}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={assignDelivery}
+                      disabled={busy || !pickupDeliveryId}
+                      className="px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary-dark transition-colors disabled:opacity-50"
+                    >
+                      Assign
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Show assigned delivery man */}
+              {(o as any).assigned_delivery_id && o!.status === 'confirmed' && (
+                <div className="flex items-center justify-between bg-blue-50 rounded-xl px-4 py-2.5 text-sm">
+                  <span className="text-blue-700">
+                    🚗 Pickup assigned to: <strong>{staffList.find(s => s.id === (o as any).assigned_delivery_id)?.full_name ?? 'Staff'}</strong>
+                  </span>
+                  <span className="text-xs text-blue-400">(Waiting for delivery man to scan customer QR)</span>
+                </div>
+              )}
+
+              {/* 3a. Unsorted: open item entry form to generate receipt + mark picked_up */}
+              {o!.status === 'confirmed' && (o as any).assigned_delivery_id && o!.type === 'unsorted' && !receipt && (
+                <button
+                  onClick={() => setShowUnsortedForm(true)}
+                  disabled={busy}
+                  className="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-semibold text-sm hover:bg-indigo-700 transition-colors disabled:opacity-50"
+                >
+                  👕 تم الاستلام — Enter Items & Generate Receipt
+                </button>
+              )}
+
+              {/* 4. Assign cleaner (picked_up) */}
+              {o!.status === 'picked_up' && !(o as any).assigned_cleaner_id && (
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-gray-600">Assign Cleaner</label>
+                  <div className="flex gap-2">
+                    <select
+                      className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                      value={cleanerId}
+                      onChange={e => setCleanerId(e.target.value)}
+                    >
+                      <option value="">Select cleaner...</option>
+                      {cleanerStaff.map(s => (
+                        <option key={s.id} value={s.id}>{s.full_name || s.phone}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={assignCleaner}
+                      disabled={busy || !cleanerId}
+                      className="px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary-dark transition-colors disabled:opacity-50"
+                    >
+                      Assign
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 5. Scan bag QR to mark ready (cleaning) */}
+              {o!.status === 'cleaning' && (
+                <button
+                  onClick={() => setShowQRScanner(true)}
+                  disabled={busy}
+                  className="w-full py-2.5 bg-teal-600 text-white rounded-xl font-semibold text-sm hover:bg-teal-700 transition-colors disabled:opacity-50"
+                >
+                  📷 Scan Bag QR → Mark Ready
+                </button>
+              )}
+
+              {/* 6. Mark as paid */}
+              {receipt && !receipt.is_paid && (
+                <button
+                  onClick={markPaid}
+                  disabled={busy}
+                  className="w-full py-2.5 bg-green-600 text-white rounded-xl font-semibold text-sm hover:bg-green-700 transition-colors disabled:opacity-50"
+                >
+                  💰 Mark as Paid
+                </button>
+              )}
+
+              {/* 7. Assign final delivery (ready + paid) */}
+              {o!.status === 'ready' && !(o as any).final_delivery_id && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-semibold text-gray-600 flex-1">Assign Final Delivery</label>
+                    {!receipt?.is_paid && (
+                      <span className="text-xs text-red-500 font-semibold">⚠️ Must be paid first</span>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <select
+                      className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50"
+                      value={finalDeliveryId}
+                      onChange={e => setFinalDeliveryId(e.target.value)}
+                      disabled={!receipt?.is_paid}
+                    >
+                      <option value="">Select staff...</option>
+                      {deliveryStaff.map(s => (
+                        <option key={s.id} value={s.id}>{s.full_name || s.phone}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={assignFinalDelivery}
+                      disabled={busy || !finalDeliveryId || !receipt?.is_paid}
+                      className="px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary-dark transition-colors disabled:opacity-50"
+                    >
+                      Assign
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Cancel */}
+              {o!.status !== 'cancelled' && o!.status !== 'delivered' && (
+                <button
+                  onClick={cancelOrder}
+                  disabled={busy}
+                  className="w-full py-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl text-sm font-semibold transition-colors"
+                >
+                  Cancel Order
+                </button>
+              )}
+            </div>
+
+            {/* Receipt */}
+            {receipt && (
+              <div className="bg-white rounded-2xl p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wide">Receipt</h3>
+                  <div className="flex items-center gap-2">
+                    {receipt.is_paid ? (
+                      <span className="text-xs bg-green-100 text-green-700 rounded-full px-2.5 py-1 font-semibold">✅ Paid</span>
+                    ) : (
+                      <span className="text-xs bg-amber-100 text-amber-700 rounded-full px-2.5 py-1 font-semibold">⏳ Unpaid</span>
+                    )}
+                    <button
+                      onClick={() => setShowReceiptModal(true)}
+                      className="text-xs px-3 py-1.5 bg-primary text-white rounded-lg font-semibold hover:bg-primary-dark transition-colors"
+                    >
+                      🖨️ View & Print
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-1 text-sm">
+                  {receipt.items_snapshot?.map((item, i) => (
+                    <div key={i} className="flex justify-between">
+                      <span className="text-gray-600">{item.name_ar} × {item.quantity}</span>
+                      <span className="text-gray-800">{item.subtotal.toFixed(2)} SAR</span>
+                    </div>
+                  ))}
+                  {receipt.express_fee > 0 && (
+                    <div className="flex justify-between text-gray-500">
+                      <span>Express Fee</span>
+                      <span>{receipt.express_fee.toFixed(2)} SAR</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-bold text-gray-900 border-t pt-1 mt-1">
+                    <span>Total</span>
+                    <span className="text-primary">{receipt.total.toFixed(2)} SAR</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Assignment history */}
+            <div className="bg-white rounded-2xl p-5 shadow-sm">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3">Assignment History</h3>
+              <div className="space-y-1.5 text-xs text-gray-500">
+                {(o as any).confirmed_by && <div>✅ Confirmed by admin</div>}
+                {(o as any).assigned_delivery_id && (
+                  <div>🚗 Pickup: {staffList.find(s => s.id === (o as any).assigned_delivery_id)?.full_name ?? (o as any).assigned_delivery_id}</div>
+                )}
+                {(o as any).picked_up_confirmed_by && <div>📦 Picked up confirmed</div>}
+                {(o as any).assigned_cleaner_id && (
+                  <div>🧺 Cleaner: {staffList.find(s => s.id === (o as any).assigned_cleaner_id)?.full_name ?? (o as any).assigned_cleaner_id}</div>
+                )}
+                {(o as any).ready_confirmed_by && <div>✨ Ready confirmed (QR scan)</div>}
+                {(o as any).final_delivery_id && (
+                  <div>🚗 Final delivery: {staffList.find(s => s.id === (o as any).final_delivery_id)?.full_name ?? (o as any).final_delivery_id}</div>
+                )}
+                {o!.status === 'delivered' && <div>🎉 Delivered</div>}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 hidden md:flex items-center justify-center text-gray-300">
+          <div className="text-center">
+            <div className="text-5xl mb-3">📋</div>
+            <p className="text-lg font-medium">Select an order to view details</p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Unsorted Receipt Entry Modal ── */}
+      {showUnsortedForm && selectedOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-white rounded-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <h3 className="font-bold text-gray-900">Enter Items — #{trackingNum}</h3>
+              <button onClick={() => setShowUnsortedForm(false)} className="text-gray-400 hover:text-gray-600 text-xl font-bold">✕</button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="space-y-3">
+                {unsortedItems.map((item, i) => (
+                  <div key={i} className="border border-gray-100 rounded-xl p-3 space-y-2 bg-gray-50">
+                    <div className="flex gap-2">
+                      <input
+                        className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                        placeholder="Name (Arabic)"
+                        value={item.name_ar}
+                        onChange={e => updateUnsortedItem(i, 'name_ar', e.target.value)}
+                      />
+                      <input
+                        className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                        placeholder="Name (English)"
+                        value={item.name_en}
+                        onChange={e => updateUnsortedItem(i, 'name_en', e.target.value)}
+                      />
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      <div className="flex items-center gap-1">
+                        <label className="text-xs text-gray-500">Qty</label>
+                        <input
+                          type="number"
+                          min={1}
+                          className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                          value={item.quantity}
+                          onChange={e => updateUnsortedItem(i, 'quantity', +e.target.value)}
+                        />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <label className="text-xs text-gray-500">Price/unit</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.5}
+                          className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                          value={item.unit_price}
+                          onChange={e => updateUnsortedItem(i, 'unit_price', +e.target.value)}
+                        />
+                      </div>
+                      <select
+                        className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                        value={item.service_type}
+                        onChange={e => updateUnsortedItem(i, 'service_type', e.target.value)}
+                      >
+                        <option value="wash">Wash</option>
+                        <option value="iron">Iron</option>
+                        <option value="wash_iron">Wash+Iron</option>
+                      </select>
+                      <button
+                        onClick={() => removeUnsortedItem(i)}
+                        className="text-red-400 hover:text-red-600 text-lg"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <div className="text-xs text-gray-400 text-right">
+                      Subtotal: {(item.quantity * item.unit_price).toFixed(2)} SAR
+                    </div>
+                  </div>
+                ))}
+                <button
+                  onClick={addUnsortedItem}
+                  className="w-full border-2 border-dashed border-gray-200 rounded-xl py-2.5 text-sm text-gray-400 hover:border-primary hover:text-primary transition-colors"
+                >
+                  + Add Item
+                </button>
+              </div>
+
+              <textarea
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary"
+                rows={2}
+                placeholder="Notes (optional)"
+                value={unsortedNotes}
+                onChange={e => setUnsortedNotes(e.target.value)}
+              />
+
+              {unsortedItems.length > 0 && (
+                <div className="bg-gray-50 rounded-xl p-3 text-sm">
+                  {selectedOrder.speed === 'express' && (
+                    <div className="flex justify-between text-gray-500">
+                      <span>Express Fee (30%)</span>
+                      <span>{(unsortedItems.reduce((s, i) => s + i.quantity * i.unit_price, 0) * 0.3).toFixed(2)} SAR</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-bold text-gray-900 border-t pt-1 mt-1">
+                    <span>Total</span>
+                    <span className="text-primary">
+                      {(() => {
+                        const sub = unsortedItems.reduce((s, i) => s + i.quantity * i.unit_price, 0);
+                        const fee = selectedOrder.speed === 'express' ? sub * 0.3 : 0;
+                        return (sub + fee).toFixed(2);
+                      })()} SAR
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={submitUnsortedReceipt}
+                disabled={busy || unsortedItems.length === 0}
+                className="w-full py-3 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary-dark transition-colors disabled:opacity-50"
+              >
+                {busy ? 'Saving...' : 'Generate Receipt & Mark Picked Up'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── QR Scanner Modal ── */}
+      {showQRScanner && (
+        <QRScanner
+          title={`Scan bag QR — ${trackingNum}`}
+          onScan={handleReadyScan}
+          onClose={() => setShowQRScanner(false)}
+        />
+      )}
+
+      {/* ── Receipt Modal ── */}
+      {showReceiptModal && selectedOrder && receipt && (
+        <OrderReceipt
+          order={selectedOrder}
+          receipt={receipt}
+          onClose={() => setShowReceiptModal(false)}
+        />
+      )}
+    </div>
+  );
+}
