@@ -22,16 +22,16 @@ export default function Login() {
       return;
     }
 
-    // Verify admin status
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('is_admin')
-      .eq('id', data.user.id)
-      .single();
+    // Verify staff access: either is_admin flag OR has at least one role in user_roles
+    const [{ data: profile }, { data: roles }] = await Promise.all([
+      supabase.from('profiles').select('is_admin').eq('id', data.user.id).single(),
+      supabase.from('user_roles').select('role').eq('user_id', data.user.id),
+    ]);
 
-    if (!profile?.is_admin) {
+    const hasAccess = profile?.is_admin || (roles && roles.length > 0);
+    if (!hasAccess) {
       await supabase.auth.signOut();
-      setError('Access denied. This account does not have admin privileges.');
+      setError('Access denied. This account does not have staff privileges.');
       setLoading(false);
       return;
     }
