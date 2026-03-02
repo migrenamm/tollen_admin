@@ -91,6 +91,7 @@ export interface Category {
   name_ar: string;
   name_en: string;
   type: string;
+  image_url: string | null;
   sort_order: number;
   is_active: boolean;
 }
@@ -100,6 +101,7 @@ export interface Item {
   category_id: string;
   name_ar: string;
   name_en: string;
+  image_url: string | null;
   wash_price: number;
   iron_price: number;
   wash_iron_price: number;
