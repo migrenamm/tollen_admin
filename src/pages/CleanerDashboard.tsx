@@ -10,7 +10,9 @@ const SERVICE_LABEL: Record<string, string> = {
 
 export default function CleanerDashboard() {
   const { profile } = useAuth();
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [tab, setTab] = useState<'working' | 'done'>('working');
+  const [workingOrders, setWorkingOrders] = useState<Order[]>([]);
+  const [doneOrders, setDoneOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -21,15 +23,28 @@ export default function CleanerDashboard() {
   async function loadOrders() {
     if (!profile?.id) return;
     setLoading(true);
-    const { data } = await supabase
-      .from('orders')
-      .select('*, profiles!user_id(full_name, phone), items:order_items(*)')
-      .eq('assigned_cleaner_id', profile.id)
-      .eq('status', 'cleaning')
-      .order('created_at', { ascending: true });
-    setOrders((data ?? []) as Order[]);
+
+    const [workingRes, doneRes] = await Promise.all([
+      supabase
+        .from('orders')
+        .select('*, profiles!user_id(full_name, phone), items:order_items(*), receipt:receipts(items_snapshot, subtotal, express_fee, total)')
+        .eq('assigned_cleaner_id', profile.id)
+        .eq('status', 'cleaning')
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('orders')
+        .select('*, profiles!user_id(full_name, phone), receipt:receipts(items_snapshot, subtotal, express_fee, total)')
+        .eq('assigned_cleaner_id', profile.id)
+        .in('status', ['ready', 'delivered'])
+        .order('updated_at', { ascending: false }),
+    ]);
+
+    setWorkingOrders((workingRes.data ?? []) as Order[]);
+    setDoneOrders((doneRes.data ?? []) as Order[]);
     setLoading(false);
   }
+
+  const currentOrders = tab === 'working' ? workingOrders : doneOrders;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -39,10 +54,41 @@ export default function CleanerDashboard() {
         <p className="text-sm text-white/70 mt-0.5">{profile?.full_name ?? 'Cleaner'}</p>
       </div>
 
+      {/* Tabs */}
+      <div className="bg-white border-b border-gray-100 flex">
+        <button
+          onClick={() => setTab('working')}
+          className={`flex-1 py-3 text-sm font-semibold border-b-2 transition-colors flex items-center justify-center gap-1.5 ${
+            tab === 'working' ? 'border-primary text-primary' : 'border-transparent text-gray-400'
+          }`}
+        >
+          🧺 جاري التنظيف
+          {workingOrders.length > 0 && (
+            <span className="bg-primary text-white text-xs rounded-full px-1.5 py-0.5 leading-none">
+              {workingOrders.length}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setTab('done')}
+          className={`flex-1 py-3 text-sm font-semibold border-b-2 transition-colors flex items-center justify-center gap-1.5 ${
+            tab === 'done' ? 'border-green-500 text-green-600' : 'border-transparent text-gray-400'
+          }`}
+        >
+          ✅ مكتمل
+          {doneOrders.length > 0 && (
+            <span className="bg-green-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">
+              {doneOrders.length}
+            </span>
+          )}
+        </button>
+      </div>
+
       <div className="p-4 space-y-3 pb-8">
         <div className="flex items-center justify-between">
           <p className="text-sm font-semibold text-gray-600">
-            {orders.length} active {orders.length === 1 ? 'order' : 'orders'}
+            {currentOrders.length} {tab === 'working' ? 'active' : 'completed'}{' '}
+            {currentOrders.length === 1 ? 'order' : 'orders'}
           </p>
           <button onClick={loadOrders} className="text-xs text-gray-400 hover:text-primary font-medium">
             🔄 Refresh
@@ -53,89 +99,139 @@ export default function CleanerDashboard() {
           <div className="flex justify-center py-12">
             <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
-        ) : orders.length === 0 ? (
+        ) : currentOrders.length === 0 ? (
           <div className="text-center py-16">
-            <div className="text-4xl mb-3">🧺</div>
-            <p className="text-gray-400 font-medium">No orders in your cleaning queue</p>
+            <div className="text-4xl mb-3">{tab === 'working' ? '🧺' : '✅'}</div>
+            <p className="text-gray-400 font-medium">
+              {tab === 'working' ? 'No orders in your cleaning queue' : 'No completed orders yet'}
+            </p>
           </div>
-        ) : orders.map(order => {
-          const customerProfile = (order.profiles as any);
-          const items = (order as any).items ?? [];
-          const tNum = `#TOLL-${String(order.order_number).padStart(4, '0')}`;
-          const isExpanded = expanded === order.id;
+        ) : (
+          currentOrders.map(order => {
+            const customerProfile = (order.profiles as any);
+            const items = (order as any).items ?? [];
+            const receipt = (order as any).receipt;
+            const receiptItems: any[] = receipt?.items_snapshot ?? [];
+            const tNum = `#TOLL-${String(order.order_number).padStart(4, '0')}`;
+            const isExpanded = expanded === order.id;
 
-          return (
-            <div key={order.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
-              <button
-                className="w-full text-left px-4 py-4"
-                onClick={() => setExpanded(isExpanded ? null : order.id)}
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="font-bold text-gray-900">{tNum}</div>
-                    <div className="text-sm text-gray-500 mt-0.5">{customerProfile?.full_name ?? '—'}</div>
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {order.speed === 'express' && (
-                        <span className="text-xs bg-orange-100 text-orange-700 rounded-full px-2 py-0.5 font-semibold">⚡ Express</span>
-                      )}
-                      {order.type === 'sorted' ? (
-                        <span className="text-xs bg-teal-100 text-teal-700 rounded-full px-2 py-0.5 font-semibold">👕 Sorted</span>
-                      ) : (
-                        <span className="text-xs bg-amber-100 text-amber-700 rounded-full px-2 py-0.5 font-semibold">🧺 Unsorted</span>
-                      )}
-                      {order.service_type && (
-                        <span className="text-xs bg-blue-50 text-blue-700 rounded-full px-2 py-0.5 font-semibold">
-                          {SERVICE_LABEL[order.service_type] ?? order.service_type}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                    <span className="text-xs text-gray-400">{formatDate(order.created_at)}</span>
-                    <span className="text-primary text-lg">{isExpanded ? '▲' : '▼'}</span>
-                  </div>
-                </div>
-              </button>
-
-              {isExpanded && (
-                <div className="border-t border-gray-50 px-4 pb-4 pt-3 space-y-3">
-                  {order.notes && (
-                    <div className="bg-amber-50 rounded-xl px-3 py-2 text-sm text-amber-700">
-                      📝 {order.notes}
-                    </div>
-                  )}
-
-                  {order.type === 'sorted' && items.length > 0 ? (
+            return (
+              <div key={order.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
+                <button
+                  className="w-full text-left px-4 py-4"
+                  onClick={() => setExpanded(isExpanded ? null : order.id)}
+                >
+                  <div className="flex items-start justify-between">
                     <div>
-                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Items</p>
-                      <div className="space-y-1.5">
-                        {items.map((item: any, i: number) => (
-                          <div key={i} className="flex justify-between text-sm">
-                            <div>
-                              <span className="text-gray-800">{item.item_name_ar}</span>
-                              <span className="text-gray-400 text-xs ml-2">× {item.quantity}</span>
-                            </div>
-                            <span className="text-xs text-blue-600 font-semibold">
-                              {SERVICE_LABEL[item.service_type] ?? item.service_type}
-                            </span>
-                          </div>
-                        ))}
+                      <div className="font-bold text-gray-900">{tNum}</div>
+                      <div className="text-sm text-gray-500 mt-0.5">{customerProfile?.full_name ?? '—'}</div>
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {tab === 'done' && (
+                          <span className={`text-xs rounded-full px-2 py-0.5 font-semibold ${
+                            order.status === 'delivered'
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-teal-100 text-teal-700'
+                          }`}>
+                            {order.status === 'delivered' ? '✅ Delivered' : '✨ Ready'}
+                          </span>
+                        )}
+                        {order.speed === 'express' && (
+                          <span className="text-xs bg-orange-100 text-orange-700 rounded-full px-2 py-0.5 font-semibold">⚡ Express</span>
+                        )}
+                        {order.type === 'sorted' ? (
+                          <span className="text-xs bg-teal-100 text-teal-700 rounded-full px-2 py-0.5 font-semibold">👕 Sorted</span>
+                        ) : (
+                          <span className="text-xs bg-amber-100 text-amber-700 rounded-full px-2 py-0.5 font-semibold">🧺 Unsorted</span>
+                        )}
+                        {order.service_type && (
+                          <span className="text-xs bg-blue-50 text-blue-700 rounded-full px-2 py-0.5 font-semibold">
+                            {SERVICE_LABEL[order.service_type] ?? order.service_type}
+                          </span>
+                        )}
                       </div>
                     </div>
-                  ) : order.type === 'unsorted' ? (
-                    <div className="bg-gray-50 rounded-xl px-3 py-2 text-sm text-gray-500 text-center">
-                      Unsorted bag — items counted by admin
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                      <span className="text-xs text-gray-400">{formatDate(order.created_at)}</span>
+                      <span className="text-primary text-lg">{isExpanded ? '▲' : '▼'}</span>
                     </div>
-                  ) : null}
-
-                  <div className="bg-purple-50 rounded-xl px-3 py-2.5 text-sm text-purple-700 text-center font-semibold">
-                    🧺 In Progress — Admin will scan QR when done
                   </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
+                </button>
+
+                {isExpanded && (
+                  <div className="border-t border-gray-50 px-4 pb-4 pt-3 space-y-3">
+                    {order.notes && (
+                      <div className="bg-amber-50 rounded-xl px-3 py-2 text-sm text-amber-700">
+                        📝 {order.notes}
+                      </div>
+                    )}
+
+                    {/* Items: sorted orders use order_items; unsorted use receipt snapshot */}
+                    {order.type === 'sorted' && items.length > 0 ? (
+                      <div>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Items</p>
+                        <div className="space-y-1.5">
+                          {items.map((item: any, i: number) => (
+                            <div key={i} className="flex justify-between text-sm">
+                              <div>
+                                <span className="text-gray-800">{item.item_name_ar}</span>
+                                <span className="text-gray-400 text-xs ml-2">× {item.quantity}</span>
+                              </div>
+                              <span className="text-xs text-blue-600 font-semibold">
+                                {SERVICE_LABEL[item.service_type] ?? item.service_type}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : order.type === 'unsorted' && receiptItems.length > 0 ? (
+                      <div>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Items — فُرزت بواسطة الإدارة</p>
+                        <div className="space-y-1.5">
+                          {receiptItems.map((item: any, i: number) => (
+                            <div key={i} className="flex justify-between text-sm">
+                              <div>
+                                <span className="text-gray-800">{item.name_ar}</span>
+                                <span className="text-gray-400 text-xs ml-2">× {item.quantity}</span>
+                              </div>
+                              <span className="text-xs text-blue-600 font-semibold">
+                                {SERVICE_LABEL[item.service_type] ?? item.service_type}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        {receipt?.total != null && (
+                          <div className="mt-2 text-xs text-gray-400 text-right font-semibold">
+                            Total: {Number(receipt.total).toFixed(2)} SAR
+                          </div>
+                        )}
+                      </div>
+                    ) : order.type === 'unsorted' ? (
+                      <div className="bg-gray-50 rounded-xl px-3 py-2 text-sm text-gray-500 text-center">
+                        Unsorted bag — waiting for admin to sort items
+                      </div>
+                    ) : null}
+
+                    {tab === 'working' && (
+                      <div className="bg-purple-50 rounded-xl px-3 py-2.5 text-sm text-purple-700 text-center font-semibold">
+                        🧺 In Progress — Admin will scan QR when done
+                      </div>
+                    )}
+
+                    {tab === 'done' && (
+                      <div className={`rounded-xl px-3 py-2.5 text-sm text-center font-semibold ${
+                        order.status === 'delivered'
+                          ? 'bg-green-50 text-green-700'
+                          : 'bg-teal-50 text-teal-700'
+                      }`}>
+                        {order.status === 'delivered' ? '✅ تم التوصيل بنجاح' : '✨ جاهز للتوصيل'}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );

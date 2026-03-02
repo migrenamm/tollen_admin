@@ -23,10 +23,15 @@ const SERVICE_LABEL: Record<string, string> = {
   wash: 'Wash', iron: 'Iron', wash_iron: 'Wash+Iron',
 };
 
-interface CatalogItem { id: string; name_ar: string; name_en: string; wash_price: number; iron_price: number; wash_iron_price: number; }
+interface CatalogItem { id: string; name_ar: string; name_en: string; wash_price: number; iron_price: number; wash_iron_price: number; express_wash_price: number; express_iron_price: number; express_wash_iron_price: number; }
 interface UnsortedItem { item_id: string; name_ar: string; name_en: string; quantity: number; unit_price: number; service_type: string; }
 
-function priceForService(cat: CatalogItem, svc: string): number {
+function priceForService(cat: CatalogItem, svc: string, speed: string = 'normal'): number {
+  if (speed === 'express') {
+    if (svc === 'iron') return +cat.express_iron_price;
+    if (svc === 'wash_iron') return +cat.express_wash_iron_price;
+    return +cat.express_wash_price;
+  }
   if (svc === 'iron') return +cat.iron_price;
   if (svc === 'wash_iron') return +cat.wash_iron_price;
   return +cat.wash_price;
@@ -80,7 +85,8 @@ export default function Orders() {
   async function loadCatalogItems() {
     const { data } = await supabase
       .from('items')
-      .select('id, name_ar, name_en, wash_price, iron_price, wash_iron_price')
+      .select('id, name_ar, name_en, wash_price, iron_price, wash_iron_price, express_wash_price, express_iron_price, express_wash_iron_price')
+      .eq('is_active', true)
       .order('name_ar');
     setCatalogItems((data ?? []) as CatalogItem[]);
   }
@@ -753,6 +759,11 @@ export default function Orders() {
               <button onClick={() => setShowUnsortedForm(false)} className="text-gray-400 hover:text-gray-600 text-xl font-bold">✕</button>
             </div>
             <div className="p-5 space-y-4">
+              {selectedOrder.speed === 'express' && (
+                <div className="bg-orange-50 border border-orange-100 rounded-xl px-3 py-2 text-xs text-orange-700 font-semibold">
+                  ⚡ طلب مستعجل — أسعار المستعجل مطبقة تلقائياً
+                </div>
+              )}
               <div className="space-y-3">
                 {unsortedItems.map((item, i) => {
                   const catItem = catalogItems.find(c => c.id === item.item_id);
@@ -768,7 +779,7 @@ export default function Orders() {
                             if (cat) {
                               setUnsortedItems(prev => prev.map((it, idx) => idx === i ? {
                                 ...it, item_id: cat.id, name_ar: cat.name_ar, name_en: cat.name_en,
-                                unit_price: priceForService(cat, it.service_type),
+                                unit_price: priceForService(cat, it.service_type, selectedOrder?.speed),
                               } : it));
                             }
                           }}
@@ -798,7 +809,7 @@ export default function Orders() {
                             const svc = e.target.value;
                             setUnsortedItems(prev => prev.map((it, idx) => idx === i ? {
                               ...it, service_type: svc,
-                              unit_price: catItem ? priceForService(catItem, svc) : it.unit_price,
+                              unit_price: catItem ? priceForService(catItem, svc, selectedOrder?.speed) : it.unit_price,
                             } : it));
                           }}
                         >
@@ -808,12 +819,9 @@ export default function Orders() {
                         </select>
                         <div className="flex items-center gap-1">
                           <label className="text-xs text-gray-500">SAR</label>
-                          <input
-                            type="number" min={0} step={0.5}
-                            className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
-                            value={item.unit_price}
-                            onChange={e => updateUnsortedItem(i, 'unit_price', +e.target.value)}
-                          />
+                          <span className="w-20 border border-gray-100 bg-gray-50 rounded-lg px-2 py-1.5 text-sm font-semibold text-gray-700 text-center">
+                            {item.unit_price.toFixed(2)}
+                          </span>
                         </div>
                       </div>
                       <div className="text-xs text-gray-400 text-right">
