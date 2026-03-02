@@ -202,41 +202,130 @@ export default function Orders() {
   async function submitUnsortedReceipt() {
     if (!selectedOrder || unsortedItems.length === 0) return;
     setBusy(true);
-    const snapshot: ReceiptItem[] = unsortedItems.map(i => ({
-      item_id: i.item_id || undefined,
-      name_ar: i.name_ar,
-      name_en: i.name_en,
-      quantity: i.quantity,
-      unit_price: i.unit_price,
-      service_type: i.service_type as ReceiptItem['service_type'],
-      subtotal: +(i.quantity * i.unit_price).toFixed(2),
-      speed: i.speed,
-    }));
-    // Express fee applies only to express-speed items
-    const subtotal = +snapshot.reduce((s, i) => s + i.subtotal, 0).toFixed(2);
+
+    const toSnapshot = (list: UnsortedItem[], spd: 'express' | 'normal'): ReceiptItem[] =>
+      list.map(i => ({
+        item_id: i.item_id || undefined,
+        name_ar: i.name_ar, name_en: i.name_en,
+        quantity: i.quantity, unit_price: i.unit_price,
+        service_type: i.service_type as ReceiptItem['service_type'],
+        subtotal: +(i.quantity * i.unit_price).toFixed(2),
+        speed: spd,
+      }));
+
+    const expressItemsList = unsortedItems.filter(it => it.speed === 'express' && it.item_id);
+    const normalItemsList  = unsortedItems.filter(it => it.speed === 'normal'  && it.item_id);
+    const hasMixed = expressItemsList.length > 0 && normalItemsList.length > 0;
+
+    if (hasMixed) {
+      // ── SPLIT: two separate orders, each with their own lifecycle ──
+      const expSnap  = toSnapshot(expressItemsList, 'express');
+      const expBase  = +expSnap.reduce((s, i) => s + i.subtotal, 0).toFixed(2);
+      const expFee   = +(expBase * 0.3).toFixed(2);
+      const expTotal = +(expBase + expFee).toFixed(2);
+
+      const normSnap  = toSnapshot(normalItemsList, 'normal');
+      const normBase  = +normSnap.reduce((s, i) => s + i.subtotal, 0).toFixed(2);
+      const normTotal = normBase;
+
+      const now = new Date().toISOString();
+      const orig = selectedOrder as any;
+
+      // 1. Create new express order (inherit pickup context from original)
+      const { data: expOrder, error: expErr } = await supabase.from('orders').insert({
+        user_id: selectedOrder.user_id,
+        address_id: selectedOrder.address_id,
+        type: 'unsorted',
+        speed: 'express',
+        status: 'picked_up',
+        service_type: null,
+        total: expTotal,
+        notes: selectedOrder.notes || null,
+        confirmed_by: orig.confirmed_by || null,
+        assigned_delivery_id: orig.assigned_delivery_id || null,
+        delivery_assigned_by: orig.delivery_assigned_by || null,
+        picked_up_confirmed_by: orig.picked_up_confirmed_by || null,
+        is_paid: false,
+        created_at: now,
+        updated_at: now,
+      }).select().single();
+
+      if (expErr || !expOrder) {
+        alert('Failed to create express order. Please try again.');
+        setBusy(false);
+        return;
+      }
+
+      // 2. Create receipt for the new express order
+      await supabase.from('receipts').insert({
+        order_id: expOrder.id,
+        items_snapshot: expSnap,
+        subtotal: expBase,
+        express_fee: expFee,
+        total: expTotal,
+        notes: unsortedNotes || null,
+        issued_by: adminProfile?.id,
+      });
+
+      // 3. Update original order → becomes the normal order
+      await supabase.from('orders').update({
+        speed: 'normal',
+        total: normTotal,
+        updated_at: now,
+      }).eq('id', selectedOrder.id);
+
+      // 4. Create or update receipt for the normal order (original)
+      if (receipt) {
+        await supabase.from('receipts').update({
+          items_snapshot: normSnap,
+          subtotal: normBase,
+          express_fee: 0,
+          total: normTotal,
+          notes: unsortedNotes || null,
+        }).eq('id', receipt.id);
+      } else {
+        await supabase.from('receipts').insert({
+          order_id: selectedOrder.id,
+          items_snapshot: normSnap,
+          subtotal: normBase,
+          express_fee: 0,
+          total: normTotal,
+          notes: unsortedNotes || null,
+          issued_by: adminProfile?.id,
+        });
+      }
+
+      // 5. Refresh list and deselect so admin can see both orders
+      setShowUnsortedForm(false);
+      setUnsortedItems([]);
+      setUnsortedNotes('');
+      setSelectedOrder(null);
+      setReceipt(null);
+      setBusy(false);
+      await loadOrders();
+      const expNum = `TOLL-${String(expOrder.order_number).padStart(4, '0')}`;
+      alert(`✅ تم تقسيم الطلب إلى طلبين:\n⚡ #${expNum} — مستعجل (${expTotal.toFixed(2)} SAR)\n🕐 #${trackingNum} — عادي (${normTotal.toFixed(2)} SAR)\n\nيمكنك الآن تعيين منظف ومندوب لكل طلب على حدة.`);
+      return;
+    }
+
+    // ── SINGLE SPEED: no split needed ──
+    const snapshot: ReceiptItem[] = toSnapshot(unsortedItems, unsortedItems[0]?.speed ?? 'normal');
+    const subtotal    = +snapshot.reduce((s, i) => s + i.subtotal, 0).toFixed(2);
     const expressBase = +snapshot.filter(i => i.speed === 'express').reduce((s, i) => s + i.subtotal, 0).toFixed(2);
     const express_fee = +(expressBase * 0.3).toFixed(2);
-    const total = +(subtotal + express_fee).toFixed(2);
+    const total       = +(subtotal + express_fee).toFixed(2);
 
     let savedReceipt: Receipt;
     if (receipt) {
-      // Update existing receipt (admin adding more items or correcting)
       await supabase.from('receipts').update({
-        items_snapshot: snapshot,
-        subtotal,
-        express_fee,
-        total,
+        items_snapshot: snapshot, subtotal, express_fee, total,
         notes: unsortedNotes || null,
       }).eq('id', receipt.id);
       savedReceipt = { ...receipt, items_snapshot: snapshot, subtotal, express_fee, total, notes: unsortedNotes || null };
     } else {
-      // Create new receipt
       const { data: rec } = await supabase.from('receipts').insert({
         order_id: selectedOrder.id,
-        items_snapshot: snapshot,
-        subtotal,
-        express_fee,
-        total,
+        items_snapshot: snapshot, subtotal, express_fee, total,
         notes: unsortedNotes || null,
         issued_by: adminProfile?.id,
       }).select().single();
@@ -937,8 +1026,8 @@ export default function Orders() {
                 return (
                   <div className="bg-gray-50 rounded-xl p-3 text-sm space-y-1.5">
                     {hasMixed && (
-                      <div className="text-xs font-bold text-orange-600 bg-orange-50 rounded-lg px-2 py-1 mb-2">
-                        📋 فاتورة مقسمة — سيتم إنشاء فاتورة واحدة بقسمين
+                      <div className="text-xs font-bold text-orange-600 bg-orange-50 border border-orange-200 rounded-lg px-2 py-1.5 mb-2">
+                        ⚡ سيتم إنشاء طلبين منفصلين — كل طلب له منظف ومندوب خاص به
                       </div>
                     )}
                     {expressItems.length > 0 && (
@@ -972,7 +1061,13 @@ export default function Orders() {
                 disabled={busy || unsortedItems.length === 0 || unsortedItems.some(it => !it.item_id)}
                 className="w-full py-3 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary-dark transition-colors disabled:opacity-50"
               >
-                {busy ? 'Saving...' : 'إنشاء الفاتورة'}
+                {busy ? 'Saving...' : (() => {
+                  const expCount  = unsortedItems.filter(it => it.speed === 'express' && it.item_id).length;
+                  const normCount = unsortedItems.filter(it => it.speed === 'normal'  && it.item_id).length;
+                  return expCount > 0 && normCount > 0
+                    ? '⚡ تقسيم الطلب وإنشاء طلبين منفصلين'
+                    : 'إنشاء الفاتورة';
+                })()}
               </button>
             </div>
           </div>
