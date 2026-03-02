@@ -215,22 +215,14 @@ export default function Orders() {
       issued_by: adminProfile?.id,
     }).select().single();
 
-    await supabase.from('orders').update({
-      status: 'picked_up',
-      picked_up_confirmed_by: adminProfile?.id,
-      updated_at: new Date().toISOString(),
-    }).eq('id', selectedOrder.id);
-
-    await notifyUser(
-      (selectedOrder.profiles as any)?.id ?? '',
-      'تم الاستلام',
-      'ملابسك وصلت وسيبدأ التنظيف قريباً',
-      selectedOrder.id
-    );
+    // Status is already 'picked_up' — driver already set it when scanning customer QR.
+    // Just create the receipt; do not change status or send a duplicate notification.
 
     setReceipt(rec as Receipt);
     setShowUnsortedForm(false);
-    refreshSelected({ status: 'picked_up', picked_up_confirmed_by: adminProfile?.id });
+    setUnsortedItems([]);
+    setUnsortedNotes('');
+    refreshSelected({});
     setBusy(false);
   }
 
@@ -498,6 +490,11 @@ export default function Orders() {
                   {(o as any).address.full_address ?? (o as any).address.house_number}, {(o as any).address.district}, {(o as any).address.city}
                 </div>
               )}
+              {o!.notes && (
+                <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-sm text-amber-800">
+                  <span className="font-semibold">📝 ملاحظات: </span>{o!.notes}
+                </div>
+              )}
             </div>
 
             {/* Items (sorted only) */}
@@ -561,29 +558,32 @@ export default function Orders() {
                 </div>
               )}
 
-              {/* Show assigned delivery man */}
+              {/* Show assigned delivery man — waiting for driver to scan */}
               {(o as any).assigned_delivery_id && o!.status === 'confirmed' && (
-                <div className="flex items-center justify-between bg-blue-50 rounded-xl px-4 py-2.5 text-sm">
-                  <span className="text-blue-700">
-                    🚗 Pickup assigned to: <strong>{staffList.find(s => s.id === (o as any).assigned_delivery_id)?.full_name ?? 'Staff'}</strong>
-                  </span>
-                  <span className="text-xs text-blue-400">(Waiting for delivery man to scan customer QR)</span>
+                <div className="bg-blue-50 rounded-xl px-4 py-2.5 text-sm text-blue-700">
+                  🚗 Pickup assigned to: <strong>{staffList.find(s => s.id === (o as any).assigned_delivery_id)?.full_name ?? 'Staff'}</strong>
+                  <div className="text-xs text-blue-400 mt-0.5">⏳ Waiting for delivery man to scan customer QR...</div>
                 </div>
               )}
 
-              {/* 3a. Unsorted: open item entry form to generate receipt + mark picked_up */}
-              {o!.status === 'confirmed' && (o as any).assigned_delivery_id && o!.type === 'unsorted' && !receipt && (
-                <button
-                  onClick={() => setShowUnsortedForm(true)}
-                  disabled={busy}
-                  className="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-semibold text-sm hover:bg-indigo-700 transition-colors disabled:opacity-50"
-                >
-                  👕 تم الاستلام — Enter Items & Generate Receipt
-                </button>
+              {/* 3. Driver has picked up — admin now sorts clothes and creates receipt */}
+              {o!.status === 'picked_up' && o!.type === 'unsorted' && !receipt && (
+                <div className="space-y-2">
+                  <div className="bg-indigo-50 rounded-xl px-4 py-2.5 text-sm text-indigo-700">
+                    📦 Clothes received at store — sort and create receipt before assigning cleaner.
+                  </div>
+                  <button
+                    onClick={() => setShowUnsortedForm(true)}
+                    disabled={busy}
+                    className="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-semibold text-sm hover:bg-indigo-700 transition-colors disabled:opacity-50"
+                  >
+                    📋 فرز الملابس وإنشاء الفاتورة
+                  </button>
+                </div>
               )}
 
-              {/* 4. Assign cleaner (picked_up) */}
-              {o!.status === 'picked_up' && !(o as any).assigned_cleaner_id && (
+              {/* 4. Assign cleaner — only after receipt exists */}
+              {o!.status === 'picked_up' && !(o as any).assigned_cleaner_id && receipt && (
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-600">Assign Cleaner</label>
                   <div className="flex gap-2">
@@ -749,7 +749,7 @@ export default function Orders() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="bg-white rounded-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b">
-              <h3 className="font-bold text-gray-900">Enter Items — #{trackingNum}</h3>
+              <h3 className="font-bold text-gray-900">فرز الملابس — #{trackingNum}</h3>
               <button onClick={() => setShowUnsortedForm(false)} className="text-gray-400 hover:text-gray-600 text-xl font-bold">✕</button>
             </div>
             <div className="p-5 space-y-4">
@@ -864,7 +864,7 @@ export default function Orders() {
                 disabled={busy || unsortedItems.length === 0 || unsortedItems.some(it => !it.item_id)}
                 className="w-full py-3 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary-dark transition-colors disabled:opacity-50"
               >
-                {busy ? 'Saving...' : 'Generate Receipt & Mark Picked Up'}
+                {busy ? 'Saving...' : 'إنشاء الفاتورة'}
               </button>
             </div>
           </div>
