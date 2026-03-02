@@ -39,6 +39,8 @@ export interface Order {
   ready_confirmed_by?: string | null;
   final_delivery_id?: string | null;
   final_delivery_assigned_by?: string | null;
+  split_from_order_id?: string | null;
+  split_child_order_id?: string | null;
   profiles?: Pick<Profile, 'phone' | 'full_name'>;
   address?: { full_address: string | null; house_number: string | null; city: string | null } | null;
   items?: OrderItem[];

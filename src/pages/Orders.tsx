@@ -246,6 +246,7 @@ export default function Orders() {
         delivery_assigned_by: orig.delivery_assigned_by || null,
         picked_up_confirmed_by: orig.picked_up_confirmed_by || null,
         is_paid: false,
+        split_from_order_id: selectedOrder.id,
         created_at: now,
         updated_at: now,
       }).select().single();
@@ -267,10 +268,11 @@ export default function Orders() {
         issued_by: adminProfile?.id,
       });
 
-      // 3. Update original order → becomes the normal order
+      // 3. Update original order → becomes the normal order, link to child
       await supabase.from('orders').update({
         speed: 'normal',
         total: normTotal,
+        split_child_order_id: expOrder.id,
         updated_at: now,
       }).eq('id', selectedOrder.id);
 
@@ -655,6 +657,22 @@ export default function Orders() {
             <div className="bg-white rounded-2xl p-5 shadow-sm space-y-4">
               <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wide">Actions</h3>
 
+              {/* Split-order info banners */}
+              {(o as any).split_from_order_id && (
+                <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-2.5 text-sm text-orange-700">
+                  ⚡ هذا الطلب نتج عن تقسيم — لا يمكن إعادة تقسيمه
+                </div>
+              )}
+              {(o as any).split_child_order_id && (() => {
+                const childOrder = orders.find(ord => ord.id === (o as any).split_child_order_id);
+                const childNum = childOrder ? `#TOLL-${String(childOrder.order_number).padStart(4, '0')}` : null;
+                return (
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-600">
+                    🔗 تم إنشاء طلب مستعجل منفصل{childNum ? `: ${childNum}` : ''}
+                  </div>
+                );
+              })()}
+
               {/* 1. Confirm (pending → confirmed) */}
               {o!.status === 'pending' && (
                 <button
@@ -700,8 +718,8 @@ export default function Orders() {
                 </div>
               )}
 
-              {/* 3. Driver has picked up — admin sorts clothes (always editable until cleaner assigned) */}
-              {o!.status === 'picked_up' && o!.type === 'unsorted' && !(o as any).assigned_cleaner_id && (
+              {/* 3. Driver has picked up — admin sorts clothes (always editable until cleaner assigned, hidden for split children) */}
+              {o!.status === 'picked_up' && o!.type === 'unsorted' && !(o as any).assigned_cleaner_id && !(o as any).split_from_order_id && (
                 <div className="space-y-2">
                   {!receipt && (
                     <div className="bg-indigo-50 rounded-xl px-4 py-2.5 text-sm text-indigo-700">
@@ -892,7 +910,11 @@ export default function Orders() {
               <button onClick={() => setShowUnsortedForm(false)} className="text-gray-400 hover:text-gray-600 text-xl font-bold">✕</button>
             </div>
             <div className="p-5 space-y-4">
-              {selectedOrder.speed === 'express' ? (
+              {selectedOrder.split_child_order_id ? (
+                <div className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-600 font-semibold">
+                  🔒 تعديل القطع العادية فقط — تم فصل القطع المستعجلة في طلب منفصل
+                </div>
+              ) : selectedOrder.speed === 'express' ? (
                 <div className="bg-orange-50 border border-orange-100 rounded-xl px-3 py-2 text-xs text-orange-700 font-semibold">
                   ⚡ طلب مستعجل — كل قطعة مستعجلة افتراضياً، يمكنك تغيير كل قطعة على حدة
                 </div>
@@ -961,8 +983,8 @@ export default function Orders() {
                           </span>
                         </div>
                       </div>
-                      {/* Speed toggle */}
-                      <div className="flex items-center gap-2">
+                      {/* Speed toggle — hidden when this order already has a split child (all items locked to normal) */}
+                      {!selectedOrder?.split_child_order_id && <div className="flex items-center gap-2">
                         <span className="text-xs text-gray-500">Speed:</span>
                         <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs">
                           <button
@@ -995,7 +1017,7 @@ export default function Orders() {
                         <span className="text-xs text-gray-400 ml-auto">
                           Subtotal: {(item.quantity * item.unit_price).toFixed(2)} SAR
                         </span>
-                      </div>
+                      </div>}
                     </div>
                   );
                 })}
