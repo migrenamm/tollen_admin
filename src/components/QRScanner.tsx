@@ -21,11 +21,15 @@ export default function QRScanner({ onScan, onClose, title = 'Scan QR Code' }: P
     const scanner = new Html5Qrcode(scannerId);
     scannerRef.current = scanner;
 
+    let scanned = false;
+
     scanner.start(
       { facingMode: 'environment' },
       { fps: 10, qrbox: { width: 250, height: 250 } },
       (decoded) => {
-        scanner.stop().catch(() => {});
+        if (scanned) return;
+        scanned = true;
+        try { scanner.stop().catch(() => {}); } catch {}
         onScan(decoded);
       },
       () => {}
@@ -36,7 +40,7 @@ export default function QRScanner({ onScan, onClose, title = 'Scan QR Code' }: P
     });
 
     return () => {
-      scanner.stop().catch(() => {});
+      try { scanner.stop().catch(() => {}); } catch {}
     };
   }, []);
 
