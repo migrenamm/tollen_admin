@@ -203,6 +203,7 @@ export default function Orders() {
     if (!selectedOrder || unsortedItems.length === 0) return;
     setBusy(true);
     const snapshot: ReceiptItem[] = unsortedItems.map(i => ({
+      item_id: i.item_id || undefined,
       name_ar: i.name_ar,
       name_en: i.name_en,
       quantity: i.quantity,
@@ -217,20 +218,32 @@ export default function Orders() {
     const express_fee = +(expressBase * 0.3).toFixed(2);
     const total = +(subtotal + express_fee).toFixed(2);
 
-    const { data: rec } = await supabase.from('receipts').insert({
-      order_id: selectedOrder.id,
-      items_snapshot: snapshot,
-      subtotal,
-      express_fee,
-      total,
-      notes: unsortedNotes || null,
-      issued_by: adminProfile?.id,
-    }).select().single();
+    let savedReceipt: Receipt;
+    if (receipt) {
+      // Update existing receipt (admin adding more items or correcting)
+      await supabase.from('receipts').update({
+        items_snapshot: snapshot,
+        subtotal,
+        express_fee,
+        total,
+        notes: unsortedNotes || null,
+      }).eq('id', receipt.id);
+      savedReceipt = { ...receipt, items_snapshot: snapshot, subtotal, express_fee, total, notes: unsortedNotes || null };
+    } else {
+      // Create new receipt
+      const { data: rec } = await supabase.from('receipts').insert({
+        order_id: selectedOrder.id,
+        items_snapshot: snapshot,
+        subtotal,
+        express_fee,
+        total,
+        notes: unsortedNotes || null,
+        issued_by: adminProfile?.id,
+      }).select().single();
+      savedReceipt = rec as Receipt;
+    }
 
-    // Status is already 'picked_up' — driver already set it when scanning customer QR.
-    // Just create the receipt; do not change status or send a duplicate notification.
-
-    setReceipt(rec as Receipt);
+    setReceipt(savedReceipt);
     setShowUnsortedForm(false);
     setUnsortedItems([]);
     setUnsortedNotes('');
@@ -335,6 +348,26 @@ export default function Orders() {
   }
 
   // ── Unsorted item form helpers ──────────────────────────────────
+
+  function openSortingForm() {
+    // Pre-populate from existing receipt snapshot so admin can add/correct items
+    if (receipt?.items_snapshot?.length) {
+      setUnsortedItems(receipt.items_snapshot.map(item => ({
+        item_id: item.item_id ?? '',
+        name_ar: item.name_ar,
+        name_en: item.name_en,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        service_type: item.service_type as string,
+        speed: item.speed ?? selectedOrder?.speed ?? 'normal',
+      })));
+      setUnsortedNotes(receipt.notes ?? '');
+    } else {
+      setUnsortedItems([]);
+      setUnsortedNotes('');
+    }
+    setShowUnsortedForm(true);
+  }
 
   function addUnsortedItem() {
     setUnsortedItems(prev => [...prev, { item_id: '', name_ar: '', name_en: '', quantity: 1, unit_price: 0, service_type: 'wash', speed: selectedOrder?.speed ?? 'normal' }]);
@@ -578,18 +611,20 @@ export default function Orders() {
                 </div>
               )}
 
-              {/* 3. Driver has picked up — admin now sorts clothes and creates receipt */}
-              {o!.status === 'picked_up' && o!.type === 'unsorted' && !receipt && (
+              {/* 3. Driver has picked up — admin sorts clothes (always editable until cleaner assigned) */}
+              {o!.status === 'picked_up' && o!.type === 'unsorted' && !(o as any).assigned_cleaner_id && (
                 <div className="space-y-2">
-                  <div className="bg-indigo-50 rounded-xl px-4 py-2.5 text-sm text-indigo-700">
-                    📦 Clothes received at store — sort and create receipt before assigning cleaner.
-                  </div>
+                  {!receipt && (
+                    <div className="bg-indigo-50 rounded-xl px-4 py-2.5 text-sm text-indigo-700">
+                      📦 Clothes received at store — sort and create receipt before assigning cleaner.
+                    </div>
+                  )}
                   <button
-                    onClick={() => setShowUnsortedForm(true)}
+                    onClick={openSortingForm}
                     disabled={busy}
                     className="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-semibold text-sm hover:bg-indigo-700 transition-colors disabled:opacity-50"
                   >
-                    📋 فرز الملابس وإنشاء الفاتورة
+                    {receipt ? '✏️ تعديل الفاتورة — إضافة أو تعديل القطع' : '📋 فرز الملابس وإنشاء الفاتورة'}
                   </button>
                 </div>
               )}

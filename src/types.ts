@@ -71,6 +71,7 @@ export interface Receipt {
 }
 
 export interface ReceiptItem {
+  item_id?: string;
   name_ar: string;
   name_en: string;
   quantity: number;
