@@ -28,13 +28,13 @@ export default function DeliveryDashboard() {
     const [pickupRes, deliveryRes] = await Promise.all([
       supabase
         .from('orders')
-        .select('*, profiles!user_id(id, full_name, phone, referral_code), address:addresses(street, city, district)')
+        .select('*, profiles!user_id(id, full_name, phone, referral_code), address:addresses(full_address, house_number, city, district)')
         .eq('assigned_delivery_id', profile.id)
         .eq('status', 'confirmed')
         .order('created_at', { ascending: false }),
       supabase
         .from('orders')
-        .select('*, profiles!user_id(id, full_name, phone, referral_code), address:addresses(street, city, district)')
+        .select('*, profiles!user_id(id, full_name, phone, referral_code), address:addresses(full_address, house_number, city, district)')
         .eq('final_delivery_id', profile.id)
         .eq('status', 'ready')
         .eq('is_paid', true)
@@ -178,7 +178,7 @@ export default function DeliveryDashboard() {
 
               {address && (
                 <div className="text-xs text-gray-500 bg-gray-50 rounded-xl px-3 py-2 mb-3">
-                  📍 {address.street}, {address.district}, {address.city}
+                  📍 {address.full_address ?? address.house_number}, {address.district}, {address.city}
                 </div>
               )}
 
