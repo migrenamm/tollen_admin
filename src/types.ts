@@ -105,6 +105,9 @@ export interface Item {
   wash_price: number;
   iron_price: number;
   wash_iron_price: number;
+  express_wash_price: number;
+  express_iron_price: number;
+  express_wash_iron_price: number;
   order_count: number;
   sort_order: number;
   is_active: boolean;
