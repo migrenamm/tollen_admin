@@ -215,7 +215,9 @@ export default function Orders() {
 
     const expressItemsList = unsortedItems.filter(it => it.speed === 'express' && it.item_id);
     const normalItemsList  = unsortedItems.filter(it => it.speed === 'normal'  && it.item_id);
-    const hasMixed = expressItemsList.length > 0 && normalItemsList.length > 0;
+    // Never re-split an already-split order — treat as single-speed edit
+    const isSplitOrder = !!(selectedOrder.split_from_order_id || selectedOrder.split_child_order_id);
+    const hasMixed = !isSplitOrder && expressItemsList.length > 0 && normalItemsList.length > 0;
 
     if (hasMixed) {
       // ── SPLIT: two separate orders, each with their own lifecycle ──
@@ -718,8 +720,8 @@ export default function Orders() {
                 </div>
               )}
 
-              {/* 3. Driver has picked up — admin sorts clothes (always editable until cleaner assigned, hidden for split children) */}
-              {o!.status === 'picked_up' && o!.type === 'unsorted' && !(o as any).assigned_cleaner_id && !(o as any).split_from_order_id && (
+              {/* 3. Driver has picked up — admin sorts clothes (always editable until cleaner assigned) */}
+              {o!.status === 'picked_up' && o!.type === 'unsorted' && !(o as any).assigned_cleaner_id && (
                 <div className="space-y-2">
                   {!receipt && (
                     <div className="bg-indigo-50 rounded-xl px-4 py-2.5 text-sm text-indigo-700">
@@ -914,6 +916,10 @@ export default function Orders() {
                 <div className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-600 font-semibold">
                   🔒 تعديل القطع العادية فقط — تم فصل القطع المستعجلة في طلب منفصل
                 </div>
+              ) : selectedOrder.split_from_order_id ? (
+                <div className="bg-orange-50 border border-orange-200 rounded-xl px-3 py-2 text-xs text-orange-700 font-semibold">
+                  ⚡ تعديل القطع المستعجلة فقط — هذا الطلب نتج عن تقسيم ولا يمكن تقسيمه مجدداً
+                </div>
               ) : selectedOrder.speed === 'express' ? (
                 <div className="bg-orange-50 border border-orange-100 rounded-xl px-3 py-2 text-xs text-orange-700 font-semibold">
                   ⚡ طلب مستعجل — كل قطعة مستعجلة افتراضياً، يمكنك تغيير كل قطعة على حدة
@@ -983,8 +989,8 @@ export default function Orders() {
                           </span>
                         </div>
                       </div>
-                      {/* Speed toggle — hidden when this order already has a split child (all items locked to normal) */}
-                      {!selectedOrder?.split_child_order_id && <div className="flex items-center gap-2">
+                      {/* Speed toggle — hidden for split orders (items are locked to the order's own speed) */}
+                      {!selectedOrder?.split_child_order_id && !selectedOrder?.split_from_order_id && <div className="flex items-center gap-2">
                         <span className="text-xs text-gray-500">Speed:</span>
                         <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs">
                           <button
