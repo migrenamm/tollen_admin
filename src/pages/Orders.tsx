@@ -23,12 +23,14 @@ const SERVICE_LABEL: Record<string, string> = {
   wash: 'Wash', iron: 'Iron', wash_iron: 'Wash+Iron',
 };
 
-// Prices for unsorted receipt manual entry
-const ITEM_PRICES: Record<string, number> = {
-  shirt: 5, pants: 7, dress: 10, abaya: 12, jacket: 15, socks: 2, underwear: 2,
-};
+interface CatalogItem { id: string; name_ar: string; name_en: string; wash_price: number; iron_price: number; wash_iron_price: number; }
+interface UnsortedItem { item_id: string; name_ar: string; name_en: string; quantity: number; unit_price: number; service_type: string; }
 
-interface UnsortedItem { name_ar: string; name_en: string; quantity: number; unit_price: number; service_type: string; }
+function priceForService(cat: CatalogItem, svc: string): number {
+  if (svc === 'iron') return +cat.iron_price;
+  if (svc === 'wash_iron') return +cat.wash_iron_price;
+  return +cat.wash_price;
+}
 
 export default function Orders() {
   const { profile: adminProfile } = useAuth();
@@ -46,6 +48,7 @@ export default function Orders() {
   const [showUnsortedForm, setShowUnsortedForm] = useState(false);
   const [unsortedItems, setUnsortedItems] = useState<UnsortedItem[]>([]);
   const [unsortedNotes, setUnsortedNotes] = useState('');
+  const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
   // Assignment dropdown state
   const [pickupDeliveryId, setPickupDeliveryId] = useState('');
   const [cleanerId, setCleanerId] = useState('');
@@ -54,6 +57,7 @@ export default function Orders() {
   useEffect(() => {
     loadOrders();
     loadStaff();
+    loadCatalogItems();
   }, []);
 
   async function loadOrders() {
@@ -71,6 +75,14 @@ export default function Orders() {
       .limit(200);
     setOrders((data ?? []) as Order[]);
     setLoading(false);
+  }
+
+  async function loadCatalogItems() {
+    const { data } = await supabase
+      .from('items')
+      .select('id, name_ar, name_en, wash_price, iron_price, wash_iron_price')
+      .order('name_ar');
+    setCatalogItems((data ?? []) as CatalogItem[]);
   }
 
   async function loadStaff() {
@@ -321,7 +333,7 @@ export default function Orders() {
   // ── Unsorted item form helpers ──────────────────────────────────
 
   function addUnsortedItem() {
-    setUnsortedItems(prev => [...prev, { name_ar: '', name_en: '', quantity: 1, unit_price: 5, service_type: 'wash' }]);
+    setUnsortedItems(prev => [...prev, { item_id: '', name_ar: '', name_en: '', quantity: 1, unit_price: 0, service_type: 'wash' }]);
   }
 
   function updateUnsortedItem(idx: number, field: keyof UnsortedItem, value: string | number) {
@@ -483,7 +495,7 @@ export default function Orders() {
               <div className="text-sm text-gray-500">{profile?.phone ?? '—'}</div>
               {(o as any).address && (
                 <div className="text-sm text-gray-500 mt-1">
-                  {(o as any).address.street}, {(o as any).address.district}, {(o as any).address.city}
+                  {(o as any).address.full_address ?? (o as any).address.house_number}, {(o as any).address.district}, {(o as any).address.city}
                 </div>
               )}
             </div>
@@ -742,65 +754,74 @@ export default function Orders() {
             </div>
             <div className="p-5 space-y-4">
               <div className="space-y-3">
-                {unsortedItems.map((item, i) => (
-                  <div key={i} className="border border-gray-100 rounded-xl p-3 space-y-2 bg-gray-50">
-                    <div className="flex gap-2">
-                      <input
-                        className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
-                        placeholder="Name (Arabic)"
-                        value={item.name_ar}
-                        onChange={e => updateUnsortedItem(i, 'name_ar', e.target.value)}
-                      />
-                      <input
-                        className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
-                        placeholder="Name (English)"
-                        value={item.name_en}
-                        onChange={e => updateUnsortedItem(i, 'name_en', e.target.value)}
-                      />
-                    </div>
-                    <div className="flex gap-2 items-center">
-                      <div className="flex items-center gap-1">
-                        <label className="text-xs text-gray-500">Qty</label>
-                        <input
-                          type="number"
-                          min={1}
-                          className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
-                          value={item.quantity}
-                          onChange={e => updateUnsortedItem(i, 'quantity', +e.target.value)}
-                        />
+                {unsortedItems.map((item, i) => {
+                  const catItem = catalogItems.find(c => c.id === item.item_id);
+                  return (
+                    <div key={i} className="border border-gray-100 rounded-xl p-3 space-y-2 bg-gray-50">
+                      {/* Catalog item selector */}
+                      <div className="flex gap-2 items-center">
+                        <select
+                          className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                          value={item.item_id}
+                          onChange={e => {
+                            const cat = catalogItems.find(c => c.id === e.target.value);
+                            if (cat) {
+                              setUnsortedItems(prev => prev.map((it, idx) => idx === i ? {
+                                ...it, item_id: cat.id, name_ar: cat.name_ar, name_en: cat.name_en,
+                                unit_price: priceForService(cat, it.service_type),
+                              } : it));
+                            }
+                          }}
+                        >
+                          <option value="">Select item from catalog...</option>
+                          {catalogItems.map(c => (
+                            <option key={c.id} value={c.id}>{c.name_ar} — {c.name_en}</option>
+                          ))}
+                        </select>
+                        <button onClick={() => removeUnsortedItem(i)} className="text-red-400 hover:text-red-600 text-lg">✕</button>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <label className="text-xs text-gray-500">Price/unit</label>
-                        <input
-                          type="number"
-                          min={0}
-                          step={0.5}
-                          className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
-                          value={item.unit_price}
-                          onChange={e => updateUnsortedItem(i, 'unit_price', +e.target.value)}
-                        />
+                      {/* Qty, service type, price */}
+                      <div className="flex gap-2 items-center">
+                        <div className="flex items-center gap-1">
+                          <label className="text-xs text-gray-500">Qty</label>
+                          <input
+                            type="number" min={1}
+                            className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                            value={item.quantity}
+                            onChange={e => updateUnsortedItem(i, 'quantity', +e.target.value)}
+                          />
+                        </div>
+                        <select
+                          className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                          value={item.service_type}
+                          onChange={e => {
+                            const svc = e.target.value;
+                            setUnsortedItems(prev => prev.map((it, idx) => idx === i ? {
+                              ...it, service_type: svc,
+                              unit_price: catItem ? priceForService(catItem, svc) : it.unit_price,
+                            } : it));
+                          }}
+                        >
+                          <option value="wash">Wash</option>
+                          <option value="iron">Iron</option>
+                          <option value="wash_iron">Wash+Iron</option>
+                        </select>
+                        <div className="flex items-center gap-1">
+                          <label className="text-xs text-gray-500">SAR</label>
+                          <input
+                            type="number" min={0} step={0.5}
+                            className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                            value={item.unit_price}
+                            onChange={e => updateUnsortedItem(i, 'unit_price', +e.target.value)}
+                          />
+                        </div>
                       </div>
-                      <select
-                        className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
-                        value={item.service_type}
-                        onChange={e => updateUnsortedItem(i, 'service_type', e.target.value)}
-                      >
-                        <option value="wash">Wash</option>
-                        <option value="iron">Iron</option>
-                        <option value="wash_iron">Wash+Iron</option>
-                      </select>
-                      <button
-                        onClick={() => removeUnsortedItem(i)}
-                        className="text-red-400 hover:text-red-600 text-lg"
-                      >
-                        ✕
-                      </button>
+                      <div className="text-xs text-gray-400 text-right">
+                        Subtotal: {(item.quantity * item.unit_price).toFixed(2)} SAR
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-400 text-right">
-                      Subtotal: {(item.quantity * item.unit_price).toFixed(2)} SAR
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
                 <button
                   onClick={addUnsortedItem}
                   className="w-full border-2 border-dashed border-gray-200 rounded-xl py-2.5 text-sm text-gray-400 hover:border-primary hover:text-primary transition-colors"
@@ -840,7 +861,7 @@ export default function Orders() {
 
               <button
                 onClick={submitUnsortedReceipt}
-                disabled={busy || unsortedItems.length === 0}
+                disabled={busy || unsortedItems.length === 0 || unsortedItems.some(it => !it.item_id)}
                 className="w-full py-3 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary-dark transition-colors disabled:opacity-50"
               >
                 {busy ? 'Saving...' : 'Generate Receipt & Mark Picked Up'}
