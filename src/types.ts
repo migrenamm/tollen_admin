@@ -77,6 +77,7 @@ export interface ReceiptItem {
   unit_price: number;
   service_type: ServiceType;
   subtotal: number;
+  speed?: OrderSpeed;
 }
 
 export interface StaffProfile {

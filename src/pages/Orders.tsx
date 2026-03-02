@@ -24,7 +24,7 @@ const SERVICE_LABEL: Record<string, string> = {
 };
 
 interface CatalogItem { id: string; name_ar: string; name_en: string; wash_price: number; iron_price: number; wash_iron_price: number; express_wash_price: number; express_iron_price: number; express_wash_iron_price: number; }
-interface UnsortedItem { item_id: string; name_ar: string; name_en: string; quantity: number; unit_price: number; service_type: string; }
+interface UnsortedItem { item_id: string; name_ar: string; name_en: string; quantity: number; unit_price: number; service_type: string; speed: 'normal' | 'express'; }
 
 function priceForService(cat: CatalogItem, svc: string, speed: string = 'normal'): number {
   if (speed === 'express') {
@@ -203,12 +203,18 @@ export default function Orders() {
     if (!selectedOrder || unsortedItems.length === 0) return;
     setBusy(true);
     const snapshot: ReceiptItem[] = unsortedItems.map(i => ({
-      ...i,
+      name_ar: i.name_ar,
+      name_en: i.name_en,
+      quantity: i.quantity,
+      unit_price: i.unit_price,
       service_type: i.service_type as ReceiptItem['service_type'],
       subtotal: +(i.quantity * i.unit_price).toFixed(2),
+      speed: i.speed,
     }));
-    const subtotal = snapshot.reduce((s, i) => s + i.subtotal, 0);
-    const express_fee = selectedOrder.speed === 'express' ? +(subtotal * 0.3).toFixed(2) : 0;
+    // Express fee applies only to express-speed items
+    const subtotal = +snapshot.reduce((s, i) => s + i.subtotal, 0).toFixed(2);
+    const expressBase = +snapshot.filter(i => i.speed === 'express').reduce((s, i) => s + i.subtotal, 0).toFixed(2);
+    const express_fee = +(expressBase * 0.3).toFixed(2);
     const total = +(subtotal + express_fee).toFixed(2);
 
     const { data: rec } = await supabase.from('receipts').insert({
@@ -331,7 +337,7 @@ export default function Orders() {
   // ── Unsorted item form helpers ──────────────────────────────────
 
   function addUnsortedItem() {
-    setUnsortedItems(prev => [...prev, { item_id: '', name_ar: '', name_en: '', quantity: 1, unit_price: 0, service_type: 'wash' }]);
+    setUnsortedItems(prev => [...prev, { item_id: '', name_ar: '', name_en: '', quantity: 1, unit_price: 0, service_type: 'wash', speed: selectedOrder?.speed ?? 'normal' }]);
   }
 
   function updateUnsortedItem(idx: number, field: keyof UnsortedItem, value: string | number) {
@@ -702,13 +708,16 @@ export default function Orders() {
                 <div className="space-y-1 text-sm">
                   {receipt.items_snapshot?.map((item, i) => (
                     <div key={i} className="flex justify-between">
-                      <span className="text-gray-600">{item.name_ar} × {item.quantity}</span>
+                      <span className="text-gray-600">
+                        {item.speed === 'express' && <span className="text-orange-500 mr-1">⚡</span>}
+                        {item.name_ar} × {item.quantity}
+                      </span>
                       <span className="text-gray-800">{item.subtotal.toFixed(2)} SAR</span>
                     </div>
                   ))}
                   {receipt.express_fee > 0 && (
                     <div className="flex justify-between text-gray-500">
-                      <span>Express Fee</span>
+                      <span>رسوم المستعجل (30%)</span>
                       <span>{receipt.express_fee.toFixed(2)} SAR</span>
                     </div>
                   )}
@@ -759,27 +768,31 @@ export default function Orders() {
               <button onClick={() => setShowUnsortedForm(false)} className="text-gray-400 hover:text-gray-600 text-xl font-bold">✕</button>
             </div>
             <div className="p-5 space-y-4">
-              {selectedOrder.speed === 'express' && (
+              {selectedOrder.speed === 'express' ? (
                 <div className="bg-orange-50 border border-orange-100 rounded-xl px-3 py-2 text-xs text-orange-700 font-semibold">
-                  ⚡ طلب مستعجل — أسعار المستعجل مطبقة تلقائياً
+                  ⚡ طلب مستعجل — كل قطعة مستعجلة افتراضياً، يمكنك تغيير كل قطعة على حدة
+                </div>
+              ) : (
+                <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 text-xs text-blue-700 font-semibold">
+                  💡 يمكنك تعيين بعض القطع كمستعجلة والأخرى عادية لإنشاء فاتورة مقسمة
                 </div>
               )}
               <div className="space-y-3">
                 {unsortedItems.map((item, i) => {
                   const catItem = catalogItems.find(c => c.id === item.item_id);
                   return (
-                    <div key={i} className="border border-gray-100 rounded-xl p-3 space-y-2 bg-gray-50">
+                    <div key={i} className={`border rounded-xl p-3 space-y-2 ${item.speed === 'express' ? 'border-orange-200 bg-orange-50/30' : 'border-gray-100 bg-gray-50'}`}>
                       {/* Catalog item selector */}
                       <div className="flex gap-2 items-center">
                         <select
-                          className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                          className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white"
                           value={item.item_id}
                           onChange={e => {
                             const cat = catalogItems.find(c => c.id === e.target.value);
                             if (cat) {
                               setUnsortedItems(prev => prev.map((it, idx) => idx === i ? {
                                 ...it, item_id: cat.id, name_ar: cat.name_ar, name_en: cat.name_en,
-                                unit_price: priceForService(cat, it.service_type, selectedOrder?.speed),
+                                unit_price: priceForService(cat, it.service_type, it.speed),
                               } : it));
                             }
                           }}
@@ -791,25 +804,25 @@ export default function Orders() {
                         </select>
                         <button onClick={() => removeUnsortedItem(i)} className="text-red-400 hover:text-red-600 text-lg">✕</button>
                       </div>
-                      {/* Qty, service type, price */}
+                      {/* Qty + service type */}
                       <div className="flex gap-2 items-center">
                         <div className="flex items-center gap-1">
                           <label className="text-xs text-gray-500">Qty</label>
                           <input
                             type="number" min={1}
-                            className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                            className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white"
                             value={item.quantity}
                             onChange={e => updateUnsortedItem(i, 'quantity', +e.target.value)}
                           />
                         </div>
                         <select
-                          className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                          className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white"
                           value={item.service_type}
                           onChange={e => {
                             const svc = e.target.value;
                             setUnsortedItems(prev => prev.map((it, idx) => idx === i ? {
                               ...it, service_type: svc,
-                              unit_price: catItem ? priceForService(catItem, svc, selectedOrder?.speed) : it.unit_price,
+                              unit_price: catItem ? priceForService(catItem, svc, it.speed) : it.unit_price,
                             } : it));
                           }}
                         >
@@ -819,13 +832,45 @@ export default function Orders() {
                         </select>
                         <div className="flex items-center gap-1">
                           <label className="text-xs text-gray-500">SAR</label>
-                          <span className="w-20 border border-gray-100 bg-gray-50 rounded-lg px-2 py-1.5 text-sm font-semibold text-gray-700 text-center">
+                          <span className="w-20 border border-gray-100 bg-white rounded-lg px-2 py-1.5 text-sm font-semibold text-gray-700 text-center">
                             {item.unit_price.toFixed(2)}
                           </span>
                         </div>
                       </div>
-                      <div className="text-xs text-gray-400 text-right">
-                        Subtotal: {(item.quantity * item.unit_price).toFixed(2)} SAR
+                      {/* Speed toggle */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500">Speed:</span>
+                        <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs">
+                          <button
+                            type="button"
+                            className={`px-3 py-1.5 font-semibold transition-colors ${item.speed === 'normal' ? 'bg-gray-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                            onClick={() => {
+                              const cat = catalogItems.find(c => c.id === item.item_id);
+                              setUnsortedItems(prev => prev.map((it, idx) => idx === i ? {
+                                ...it, speed: 'normal',
+                                unit_price: cat ? priceForService(cat, it.service_type, 'normal') : it.unit_price,
+                              } : it));
+                            }}
+                          >
+                            عادي
+                          </button>
+                          <button
+                            type="button"
+                            className={`px-3 py-1.5 font-semibold transition-colors ${item.speed === 'express' ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                            onClick={() => {
+                              const cat = catalogItems.find(c => c.id === item.item_id);
+                              setUnsortedItems(prev => prev.map((it, idx) => idx === i ? {
+                                ...it, speed: 'express',
+                                unit_price: cat ? priceForService(cat, it.service_type, 'express') : it.unit_price,
+                              } : it));
+                            }}
+                          >
+                            ⚡ مستعجل
+                          </button>
+                        </div>
+                        <span className="text-xs text-gray-400 ml-auto">
+                          Subtotal: {(item.quantity * item.unit_price).toFixed(2)} SAR
+                        </span>
                       </div>
                     </div>
                   );
@@ -846,26 +891,46 @@ export default function Orders() {
                 onChange={e => setUnsortedNotes(e.target.value)}
               />
 
-              {unsortedItems.length > 0 && (
-                <div className="bg-gray-50 rounded-xl p-3 text-sm">
-                  {selectedOrder.speed === 'express' && (
-                    <div className="flex justify-between text-gray-500">
-                      <span>Express Fee (30%)</span>
-                      <span>{(unsortedItems.reduce((s, i) => s + i.quantity * i.unit_price, 0) * 0.3).toFixed(2)} SAR</span>
+              {unsortedItems.length > 0 && (() => {
+                const expressItems = unsortedItems.filter(it => it.speed === 'express' && it.item_id);
+                const normalItems  = unsortedItems.filter(it => it.speed === 'normal'  && it.item_id);
+                const expressBase  = expressItems.reduce((s, it) => s + it.quantity * it.unit_price, 0);
+                const expressFee   = +(expressBase * 0.3).toFixed(2);
+                const normalBase   = normalItems.reduce((s, it) => s + it.quantity * it.unit_price, 0);
+                const hasMixed     = expressItems.length > 0 && normalItems.length > 0;
+                const grandTotal   = +(expressBase + expressFee + normalBase).toFixed(2);
+                return (
+                  <div className="bg-gray-50 rounded-xl p-3 text-sm space-y-1.5">
+                    {hasMixed && (
+                      <div className="text-xs font-bold text-orange-600 bg-orange-50 rounded-lg px-2 py-1 mb-2">
+                        📋 فاتورة مقسمة — سيتم إنشاء فاتورة واحدة بقسمين
+                      </div>
+                    )}
+                    {expressItems.length > 0 && (
+                      <>
+                        <div className="flex justify-between text-orange-700 font-semibold">
+                          <span>⚡ مستعجل ({expressItems.reduce((s, it) => s + it.quantity, 0)} قطعة)</span>
+                          <span>{expressBase.toFixed(2)} SAR</span>
+                        </div>
+                        <div className="flex justify-between text-gray-500 text-xs">
+                          <span>رسوم المستعجل (30%)</span>
+                          <span>{expressFee.toFixed(2)} SAR</span>
+                        </div>
+                      </>
+                    )}
+                    {normalItems.length > 0 && (
+                      <div className="flex justify-between text-gray-700 font-semibold">
+                        <span>🕐 عادي ({normalItems.reduce((s, it) => s + it.quantity, 0)} قطعة)</span>
+                        <span>{normalBase.toFixed(2)} SAR</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between font-bold text-gray-900 border-t pt-1.5 mt-0.5">
+                      <span>الإجمالي</span>
+                      <span className="text-primary">{grandTotal.toFixed(2)} SAR</span>
                     </div>
-                  )}
-                  <div className="flex justify-between font-bold text-gray-900 border-t pt-1 mt-1">
-                    <span>Total</span>
-                    <span className="text-primary">
-                      {(() => {
-                        const sub = unsortedItems.reduce((s, i) => s + i.quantity * i.unit_price, 0);
-                        const fee = selectedOrder.speed === 'express' ? sub * 0.3 : 0;
-                        return (sub + fee).toFixed(2);
-                      })()} SAR
-                    </span>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               <button
                 onClick={submitUnsortedReceipt}
