@@ -43,7 +43,7 @@ export default function Dashboard() {
       supabase.from('orders').select('*', { count: 'exact', head: true }),
       supabase.from('orders').select('total').neq('status', 'cancelled'),
       supabase.from('orders')
-        .select('id, status, type, total, created_at, speed, profiles!user_id(phone, full_name)')
+        .select('id, order_number, status, type, total, created_at, speed, profiles!user_id(phone, full_name)')
         .order('created_at', { ascending: false })
         .limit(8),
     ]);
@@ -115,7 +115,7 @@ export default function Dashboard() {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                <th className="table-th">Order ID</th>
+                <th className="table-th">Order</th>
                 <th className="table-th">Customer</th>
                 <th className="table-th">Type</th>
                 <th className="table-th">Total</th>
@@ -126,7 +126,9 @@ export default function Dashboard() {
             <tbody className="divide-y divide-gray-50">
               {recentOrders.map(order => (
                 <tr key={order.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="table-td font-mono text-xs text-gray-400">{order.id.slice(0, 8)}…</td>
+                  <td className="table-td font-mono text-sm font-semibold text-primary">
+                    #{`TOLL-${String((order as any).order_number).padStart(4, '0')}`}
+                  </td>
                   <td className="table-td">{(order.profiles as any)?.phone ?? '—'}</td>
                   <td className="table-td capitalize">{order.type}</td>
                   <td className="table-td font-semibold">{order.total} SAR</td>
