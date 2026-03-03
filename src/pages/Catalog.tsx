@@ -96,8 +96,9 @@ export default function Catalog() {
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
 
-  // Item modal
+  // Item modal (shared for add + edit)
   const [showAddItem, setShowAddItem] = useState(false);
+  const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [itemForm, setItemForm] = useState<ItemForm>(EMPTY_ITEM_FORM);
   const [itemImageUrl, setItemImageUrl] = useState<string | null>(null);
   const [itemError, setItemError] = useState('');
@@ -173,6 +174,55 @@ export default function Catalog() {
     });
     if (error) { setItemError(error.message); setCreatingItem(false); return; }
     setShowAddItem(false);
+    setItemForm(EMPTY_ITEM_FORM);
+    setItemImageUrl(null);
+    setCreatingItem(false);
+    await loadData();
+  }
+
+  function openEditItem(item: Item) {
+    setEditingItem(item);
+    setItemForm({
+      name_ar: item.name_ar,
+      name_en: item.name_en,
+      category_id: item.category_id,
+      wash_price: String(item.wash_price ?? 0),
+      iron_price: String(item.iron_price ?? 0),
+      wash_iron_price: String(item.wash_iron_price ?? 0),
+      express_wash_price: String(item.express_wash_price ?? 0),
+      express_iron_price: String(item.express_iron_price ?? 0),
+      express_wash_iron_price: String(item.express_wash_iron_price ?? 0),
+      sort_order: String(item.sort_order ?? 0),
+    });
+    setItemImageUrl(item.image_url ?? null);
+    setItemError('');
+    setShowAddItem(true);
+  }
+
+  async function handleUpdateItem() {
+    if (!editingItem) return;
+    if (!itemForm.name_ar.trim() || !itemForm.name_en.trim() || !itemForm.category_id) {
+      setItemError('Please fill in Arabic name, English name, and select a category.');
+      return;
+    }
+    setCreatingItem(true);
+    setItemError('');
+    const { error } = await supabase.from('items').update({
+      name_ar: itemForm.name_ar.trim(),
+      name_en: itemForm.name_en.trim(),
+      category_id: itemForm.category_id,
+      wash_price: parseFloat(itemForm.wash_price) || 0,
+      iron_price: parseFloat(itemForm.iron_price) || 0,
+      wash_iron_price: parseFloat(itemForm.wash_iron_price) || 0,
+      express_wash_price: parseFloat(itemForm.express_wash_price) || 0,
+      express_iron_price: parseFloat(itemForm.express_iron_price) || 0,
+      express_wash_iron_price: parseFloat(itemForm.express_wash_iron_price) || 0,
+      image_url: itemImageUrl,
+      sort_order: parseInt(itemForm.sort_order) || 0,
+    }).eq('id', editingItem.id);
+    if (error) { setItemError(error.message); setCreatingItem(false); return; }
+    setShowAddItem(false);
+    setEditingItem(null);
     setItemForm(EMPTY_ITEM_FORM);
     setItemImageUrl(null);
     setCreatingItem(false);
@@ -275,7 +325,7 @@ export default function Catalog() {
             + Category
           </button>
           <button
-            onClick={() => { setShowAddItem(true); setItemError(''); setItemForm({ ...EMPTY_ITEM_FORM, category_id: categories[0]?.id ?? '' }); setItemImageUrl(null); }}
+            onClick={() => { setEditingItem(null); setShowAddItem(true); setItemError(''); setItemForm({ ...EMPTY_ITEM_FORM, category_id: categories[0]?.id ?? '' }); setItemImageUrl(null); }}
             className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary-dark transition-colors shadow-sm"
           >
             + Add Item
@@ -383,10 +433,16 @@ export default function Catalog() {
                           </button>
                         </td>
                         <td className="table-td">
-                          <button onClick={() => deleteItem(item.id)} disabled={busy === `item-${item.id}`}
-                            className="text-red-400 hover:text-red-600 disabled:opacity-50">
-                            {busy === `item-${item.id}` ? '...' : '🗑'}
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => openEditItem(item)}
+                              className="text-gray-400 hover:text-primary">
+                              ✏️
+                            </button>
+                            <button onClick={() => deleteItem(item.id)} disabled={busy === `item-${item.id}`}
+                              className="text-red-400 hover:text-red-600 disabled:opacity-50">
+                              {busy === `item-${item.id}` ? '...' : '🗑'}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -453,13 +509,13 @@ export default function Catalog() {
         </div>
       )}
 
-      {/* ── ADD ITEM MODAL ── */}
+      {/* ── ADD / EDIT ITEM MODAL ── */}
       {showAddItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 space-y-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-gray-900">Add New Item</h2>
-              <button onClick={() => setShowAddItem(false)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+              <h2 className="text-lg font-bold text-gray-900">{editingItem ? 'Edit Item' : 'Add New Item'}</h2>
+              <button onClick={() => { setShowAddItem(false); setEditingItem(null); }} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
             </div>
 
             <div className="space-y-4">
@@ -544,13 +600,15 @@ export default function Catalog() {
             {itemError && <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl">{itemError}</div>}
 
             <div className="flex gap-3">
-              <button onClick={() => setShowAddItem(false)}
+              <button onClick={() => { setShowAddItem(false); setEditingItem(null); }}
                 className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50">
                 Cancel
               </button>
-              <button onClick={handleCreateItem} disabled={creatingItem}
+              <button onClick={editingItem ? handleUpdateItem : handleCreateItem} disabled={creatingItem}
                 className="flex-1 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary-dark disabled:opacity-50 flex items-center justify-center gap-2">
-                {creatingItem ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Adding...</> : 'Add Item'}
+                {creatingItem
+                  ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{editingItem ? 'Saving...' : 'Adding...'}</>
+                  : editingItem ? 'Save Changes' : 'Add Item'}
               </button>
             </div>
           </div>
