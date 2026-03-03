@@ -30,6 +30,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     { to: '/catalog',   icon: '👕', label: 'Catalog' },
     { to: '/staff',     icon: '👤', label: 'Staff' },
     { to: '/receipts',  icon: '🧾', label: 'Receipts' },
+    { to: '/support',   icon: '💬', label: 'Support' },
   ];
 
   const navItems = isAdmin ? adminNav : [

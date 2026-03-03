@@ -7,6 +7,7 @@ import Customers from './pages/Customers';
 import Catalog from './pages/Catalog';
 import Staff from './pages/Staff';
 import Receipts from './pages/Receipts';
+import Support from './pages/Support';
 import DeliveryDashboard from './pages/DeliveryDashboard';
 import CleanerDashboard from './pages/CleanerDashboard';
 import Layout from './components/Layout';
@@ -58,6 +59,7 @@ function ProtectedRoutes() {
             <Route path="/catalog" element={<Catalog />} />
             <Route path="/staff" element={<Staff />} />
             <Route path="/receipts" element={<Receipts />} />
+            <Route path="/support" element={<Support />} />
           </>
         )}
 
