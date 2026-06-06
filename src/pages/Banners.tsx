@@ -42,7 +42,7 @@ const EMPTY_FORM: BannerForm = {
 };
 
 async function uploadBannerImage(file: File): Promise<string | null> {
-  const ext = file.name.split('.').pop();
+  const ext = file.name.split('.').pop() ?? 'jpg';
   const path = `${crypto.randomUUID()}.${ext}`;
   const { error } = await supabase.storage.from('banners').upload(path, file, { upsert: true });
   if (error) { console.error('Upload error:', error); return null; }
@@ -52,36 +52,47 @@ async function uploadBannerImage(file: File): Promise<string | null> {
 function ImageUploader({ current, onChange }: { current: string; onChange: (url: string) => void }) {
   const ref = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setUploadError('');
     setUploading(true);
     const url = await uploadBannerImage(file);
     setUploading(false);
-    if (url) onChange(url);
+    if (url) { onChange(url); }
+    else { setUploadError('Upload failed. Please try again.'); }
   }
 
   return (
-    <div className="flex items-center gap-3">
-      {current ? (
-        <div className="relative">
-          <img src={current} alt="preview" className="h-16 w-32 object-cover rounded-lg border border-gray-200" />
-          <button
-            type="button"
-            onClick={() => onChange('')}
-            className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs leading-none"
-          >×</button>
-        </div>
-      ) : (
-        <div
-          onClick={() => ref.current?.click()}
-          className="h-16 w-32 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center cursor-pointer hover:border-primary text-gray-400 text-xs text-center px-2"
-        >
-          {uploading ? 'Uploading...' : '📁 Upload image'}
-        </div>
-      )}
-      <input ref={ref} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-3">
+        {current ? (
+          <div className="relative">
+            <img src={current} alt="preview" className="h-16 w-32 object-cover rounded-lg border border-gray-200" />
+            <button
+              type="button"
+              onClick={() => onChange('')}
+              className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs leading-none"
+            >×</button>
+          </div>
+        ) : (
+          <div
+            onClick={() => ref.current?.click()}
+            className="h-16 w-32 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center cursor-pointer hover:border-primary text-gray-400 text-xs text-center px-2"
+          >
+            {uploading ? 'Uploading...' : '📁 Upload image'}
+          </div>
+        )}
+        {current && (
+          <button type="button" onClick={() => ref.current?.click()} className="text-xs text-primary underline">
+            Change
+          </button>
+        )}
+        <input ref={ref} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+      </div>
+      {uploadError && <p className="text-xs text-red-500">{uploadError}</p>}
     </div>
   );
 }
@@ -137,20 +148,24 @@ export default function Banners() {
       sort_order: parseInt(form.sort_order, 10) || 0,
       is_active: form.is_active,
     };
-    if (editingId) {
-      await supabase.from('banners').update(payload).eq('id', editingId);
-    } else {
-      await supabase.from('banners').insert(payload);
-    }
+    const { error } = editingId
+      ? await supabase.from('banners').update(payload).eq('id', editingId)
+      : await supabase.from('banners').insert(payload);
     setSaving(false);
+    if (error) { alert(`Failed to save: ${error.message}`); return; }
     setModalOpen(false);
     load();
   }
 
   async function handleDelete(b: Banner) {
     if (!confirm(`Delete banner "${b.title}"?`)) return;
-    const storagePath = b.image_url.split('/banners/')[1];
-    if (storagePath) await supabase.storage.from('banners').remove([storagePath]);
+    try {
+      const url = new URL(b.image_url);
+      const storagePath = url.pathname.split('/banners/')[1];
+      if (storagePath) await supabase.storage.from('banners').remove([storagePath]);
+    } catch {
+      // non-storage URL or invalid URL — skip storage deletion
+    }
     await supabase.from('banners').delete().eq('id', b.id);
     load();
   }
@@ -216,7 +231,7 @@ export default function Banners() {
 
       {modalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[92vh] overflow-y-auto">
             <h2 className="text-lg font-bold mb-4">
               {editingId ? 'Edit Banner' : 'Add Banner'}
             </h2>
@@ -255,6 +270,7 @@ export default function Banners() {
                 <label className="text-sm font-medium text-gray-700">Order (lower = first)</label>
                 <input
                   type="number"
+                  min={0}
                   className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary"
                   value={form.sort_order}
                   onChange={e => setForm(f => ({ ...f, sort_order: e.target.value }))}
