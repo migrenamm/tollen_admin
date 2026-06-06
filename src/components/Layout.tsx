@@ -28,6 +28,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     { to: '/orders',    icon: '📋', label: 'Orders' },
     { to: '/customers', icon: '👥', label: 'Customers' },
     { to: '/catalog',   icon: '👕', label: 'Catalog' },
+    { to: '/banners',   icon: '🖼️', label: 'Banners' },
     { to: '/staff',     icon: '👤', label: 'Staff' },
     { to: '/receipts',  icon: '🧾', label: 'Receipts' },
     { to: '/support',   icon: '💬', label: 'Support' },

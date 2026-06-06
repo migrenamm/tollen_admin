@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import Orders from './pages/Orders';
 import Customers from './pages/Customers';
 import Catalog from './pages/Catalog';
+import Banners from './pages/Banners';
 import Staff from './pages/Staff';
 import Receipts from './pages/Receipts';
 import Support from './pages/Support';
@@ -57,6 +58,7 @@ function ProtectedRoutes() {
             <Route path="/orders" element={<Orders />} />
             <Route path="/customers" element={<Customers />} />
             <Route path="/catalog" element={<Catalog />} />
+            <Route path="/banners" element={<Banners />} />
             <Route path="/staff" element={<Staff />} />
             <Route path="/receipts" element={<Receipts />} />
             <Route path="/support" element={<Support />} />
