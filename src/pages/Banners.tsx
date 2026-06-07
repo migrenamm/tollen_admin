@@ -253,6 +253,9 @@ export default function Banners() {
                     onChange={url => setForm(f => ({ ...f, image_url: url }))}
                   />
                 </div>
+                <p className="mt-1.5 text-xs text-gray-400">
+                  Ideal size: <span className="font-medium text-gray-500">1200 × 450 px</span> · Ratio 8:3 · JPG or PNG · max 2 MB
+                </p>
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">Opens screen (optional)</label>
