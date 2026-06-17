@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { Profile, StaffRole } from '../types';
+import { subscribeWebPush } from '../lib/webPush';
 
 interface AuthContextValue {
   session: Session | null;
@@ -57,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(profileData as Profile | null);
     setRoles((rolesData ?? []).map((r: any) => r.role as StaffRole));
     setLoading(false);
+    subscribeWebPush(userId);
   }
 
   async function updateProfile(updates: Partial<Profile>) {
