@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { Order } from '../types';
-import { notifyUser } from '../lib/pushNotifications';
 import QRScanner from '../components/QRScanner';
 
 type Tab = 'pickup' | 'delivery' | 'done';
@@ -115,13 +114,6 @@ export default function DeliveryDashboard() {
           updated_at: new Date().toISOString(),
         }).eq('id', orderId);
 
-        await notifyUser(
-          (order.profiles as any)?.id ?? '',
-          'تم الاستلام',
-          'ملابسك وصلت وسيبدأ التنظيف قريباً',
-          orderId
-        );
-
         setPickupOrders(prev => prev.filter(o => o.id !== orderId));
         // Move to history immediately
         setDoneOrders(prev => [{ ...order, status: 'picked_up' } as Order, ...prev]);
@@ -130,13 +122,6 @@ export default function DeliveryDashboard() {
           status: 'delivered',
           updated_at: new Date().toISOString(),
         }).eq('id', orderId);
-
-        await notifyUser(
-          (order.profiles as any)?.id ?? '',
-          'تم التوصيل',
-          'تم توصيل طلبك بنجاح. شكراً لاستخدامك تولن!',
-          orderId
-        );
 
         setDeliveryOrders(prev => prev.filter(o => o.id !== orderId));
         // Move to history immediately

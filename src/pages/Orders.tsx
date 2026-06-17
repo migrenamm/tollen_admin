@@ -3,7 +3,6 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { Order, OrderStatus, Receipt, ReceiptItem, StaffProfile } from '../types';
 import { formatDate } from '../lib/utils';
-import { notifyUser } from '../lib/pushNotifications';
 import QRScanner from '../components/QRScanner';
 import OrderReceipt from '../components/OrderReceipt';
 
@@ -159,12 +158,6 @@ export default function Orders() {
       setReceipt(rec as Receipt);
     }
 
-    await notifyUser(
-      (selectedOrder.profiles as any)?.id ?? '',
-      'تم تأكيد طلبك',
-      `طلب #TOLL-${String(selectedOrder.order_number).padStart(4, '0')} تم تأكيده`,
-      selectedOrder.id
-    );
     refreshSelected({ status: 'confirmed', confirmed_by: adminProfile?.id });
     setBusy(false);
   }
@@ -179,12 +172,6 @@ export default function Orders() {
     }).eq('id', selectedOrder.id);
 
     const staffMember = staffList.find(s => s.id === pickupDeliveryId);
-    await notifyUser(
-      (selectedOrder.profiles as any)?.id ?? '',
-      'مندوب في الطريق',
-      'مندوبنا في طريقه لاستلام ملابسك',
-      selectedOrder.id
-    );
     refreshSelected({ assigned_delivery_id: pickupDeliveryId });
     setPickupDeliveryId('');
     setBusy(false);
@@ -354,12 +341,6 @@ export default function Orders() {
       updated_at: new Date().toISOString(),
     }).eq('id', selectedOrder.id);
 
-    await notifyUser(
-      (selectedOrder.profiles as any)?.id ?? '',
-      'جاري التنظيف',
-      'ملابسك قيد التنظيف الآن',
-      selectedOrder.id
-    );
     refreshSelected({ assigned_cleaner_id: cleanerId, status: 'cleaning' });
     setCleanerId('');
     setBusy(false);
@@ -381,12 +362,6 @@ export default function Orders() {
       updated_at: new Date().toISOString(),
     }).eq('id', selectedOrder.id);
 
-    await notifyUser(
-      (selectedOrder.profiles as any)?.id ?? '',
-      'طلبك جاهز',
-      `طلبك #${expected} جاهز وفي طريقه إليك`,
-      selectedOrder.id
-    );
     refreshSelected({ status: 'ready', ready_confirmed_by: adminProfile?.id });
     setBusy(false);
   }
@@ -404,12 +379,6 @@ export default function Orders() {
       updated_at: new Date().toISOString(),
     }).eq('id', selectedOrder.id);
 
-    await notifyUser(
-      (selectedOrder.profiles as any)?.id ?? '',
-      'في الطريق إليك',
-      'مندوبنا في طريقه لتوصيل ملابسك',
-      selectedOrder.id
-    );
     refreshSelected({ final_delivery_id: finalDeliveryId });
     setFinalDeliveryId('');
     setBusy(false);
