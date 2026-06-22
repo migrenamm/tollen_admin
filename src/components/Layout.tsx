@@ -48,7 +48,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const sidebar = (
     <aside className="w-60 flex-shrink-0 bg-slate-900 flex flex-col h-full">
       {/* Logo */}
-      <div className="px-6 py-5 border-b border-slate-700">
+      <div className="px-6 py-5 border-b border-slate-700 pt-[max(1.25rem,env(safe-area-inset-top))]">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-lg">T</div>
           <div>
@@ -147,18 +147,20 @@ export default function Layout({ children }: { children: ReactNode }) {
 
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
-        <div className="fixed inset-0 z-40 md:hidden">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)} />
-          <div className="relative z-50 h-full">
+        <div className="fixed inset-0 z-40 md:hidden flex">
+          {/* Sliding panel — only as wide as its content */}
+          <div className="relative z-50 h-full flex-shrink-0">
             {sidebar}
           </div>
+          {/* Backdrop — fills the rest, tap to close */}
+          <div className="flex-1 bg-black/50" onClick={() => setSidebarOpen(false)} />
         </div>
       )}
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Mobile top bar */}
-        <div className="md:hidden flex items-center justify-between px-4 py-3 bg-slate-900 border-b border-slate-700">
+        <div className="md:hidden flex items-center justify-between px-4 py-3 bg-slate-900 border-b border-slate-700 pt-[max(0.75rem,env(safe-area-inset-top))]">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded bg-primary flex items-center justify-center text-white font-bold text-sm">T</div>
             <span className="text-white font-bold text-sm">Tollen Staff</span>
