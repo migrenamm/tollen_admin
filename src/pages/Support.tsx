@@ -150,8 +150,8 @@ export default function Support() {
 
   return (
     <div className="flex h-full">
-      {/* ── Chat list ── */}
-      <div className="w-80 flex-shrink-0 border-r border-gray-200 bg-white flex flex-col">
+      {/* ── Chat list ── (full-width on mobile; hidden on mobile once a chat is open) */}
+      <div className={`w-full md:w-80 flex-shrink-0 border-r border-gray-200 bg-white flex-col ${selectedChat ? 'hidden md:flex' : 'flex'}`}>
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <h2 className="text-lg font-bold text-gray-900">Support Chats</h2>
           <button
@@ -211,9 +211,9 @@ export default function Support() {
         )}
       </div>
 
-      {/* ── Main area ── */}
+      {/* ── Main area ── (hidden on mobile until a chat is selected) */}
       {!selectedChat ? (
-        <div className="flex-1 flex items-center justify-center text-gray-400">
+        <div className="hidden md:flex flex-1 items-center justify-center text-gray-400">
           <div className="text-center">
             <div className="text-5xl mb-3">💬</div>
             <p className="font-medium">Select a chat to view the conversation</p>
@@ -222,28 +222,37 @@ export default function Support() {
       ) : (
         <div className="flex-1 flex overflow-hidden">
           {/* Chat column */}
-          <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
             {/* Chat header */}
-            <div className="px-5 py-3 border-b border-gray-200 bg-white flex items-center justify-between">
-              <div>
-                <p className="font-bold text-gray-900">
+            <div className="px-4 md:px-5 py-3 border-b border-gray-200 bg-white flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <button
+                  onClick={() => setSelectedChat(null)}
+                  className="md:hidden text-primary font-bold text-lg flex-shrink-0"
+                  aria-label="Back to chats"
+                >
+                  ←
+                </button>
+                <div className="min-w-0">
+                <p className="font-bold text-gray-900 truncate">
                   {selectedChat.profiles?.full_name ?? selectedChat.profiles?.phone ?? 'Unknown'}
                 </p>
-                <p className="text-xs text-primary font-semibold">
+                <p className="text-xs text-primary font-semibold truncate">
                   {selectedChat.orders
                     ? `#TOLL-${String(selectedChat.orders.order_number).padStart(4, '0')} · ${ORDER_STATUS_LABEL[selectedChat.orders.status]?.label ?? selectedChat.orders.status}`
                     : 'No order'}
                 </p>
+                </div>
               </div>
               <button
                 onClick={() => toggleChatStatus(selectedChat)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex-shrink-0 ${
                   selectedChat.status === 'open'
                     ? 'bg-red-50 text-red-600 hover:bg-red-100'
                     : 'bg-green-50 text-green-600 hover:bg-green-100'
                 }`}
               >
-                {selectedChat.status === 'open' ? '🔒 Close Chat' : '🔓 Reopen Chat'}
+                {selectedChat.status === 'open' ? '🔒 Close' : '🔓 Reopen'}
               </button>
             </div>
 
@@ -316,8 +325,8 @@ export default function Support() {
             </div>
           </div>
 
-          {/* ── Customer orders panel ── */}
-          <div className="w-64 flex-shrink-0 border-l border-gray-200 bg-white flex flex-col overflow-hidden">
+          {/* ── Customer orders panel ── (large screens only; secondary context) */}
+          <div className="hidden lg:flex w-64 flex-shrink-0 border-l border-gray-200 bg-white flex-col overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100">
               <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">All Customer Orders</p>
               <p className="text-sm font-semibold text-gray-700 mt-0.5">

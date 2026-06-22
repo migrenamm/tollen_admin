@@ -73,14 +73,14 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="p-8 space-y-8">
+    <div className="p-4 md:p-8 space-y-6 md:space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Welcome back — here's what's happening today</p>
+        <h1 className="text-xl md:text-2xl font-bold text-gray-900">Dashboard</h1>
+        <p className="text-xs md:text-sm text-gray-500 mt-0.5">Welcome back — here's what's happening today</p>
       </div>
 
       {/* Stats grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         <StatCard icon="📦" label="Orders Today"     value={stats?.totalOrdersToday ?? 0} color="teal" />
         <StatCard icon="💰" label="Revenue Today"    value={`${stats?.revenueToday.toFixed(0)} SAR`} color="coral" />
         <StatCard icon="⏳" label="Pending Orders"   value={stats?.pendingOrders ?? 0} color="blue" />
@@ -111,7 +111,8 @@ export default function Dashboard() {
           <h2 className="font-semibold text-gray-900">Recent Orders</h2>
           <a href="/orders" className="text-sm text-primary hover:underline">View all →</a>
         </div>
-        <div className="overflow-x-auto">
+        {/* Desktop table */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
@@ -145,6 +146,33 @@ export default function Dashboard() {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile cards */}
+        <div className="md:hidden divide-y divide-gray-50">
+          {recentOrders.map(order => (
+            <div key={order.id} className="px-4 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-sm font-semibold text-primary truncate">
+                  #{`TOLL-${String((order as any).order_number).padStart(4, '0')}`}
+                </span>
+                <span className={`badge ${STATUS_COLORS[order.status] ?? 'bg-gray-100 text-gray-600'} flex-shrink-0`}>
+                  {order.status}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2 mt-1.5 text-sm">
+                <span className="text-gray-600 truncate">{(order.profiles as any)?.phone ?? '—'}</span>
+                <span className="font-semibold text-gray-900 flex-shrink-0">{order.total} SAR</span>
+              </div>
+              <div className="flex items-center justify-between gap-2 mt-0.5 text-xs text-gray-400">
+                <span className="capitalize">{order.type}</span>
+                <span>{formatDistanceToNow(order.created_at)}</span>
+              </div>
+            </div>
+          ))}
+          {recentOrders.length === 0 && (
+            <p className="text-center text-gray-400 py-8">No orders yet</p>
+          )}
         </div>
       </div>
     </div>

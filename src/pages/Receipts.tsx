@@ -124,71 +124,121 @@ export default function Receipts() {
         ) : filtered.length === 0 ? (
           <p className="text-center text-gray-400 py-12">No receipts found</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-100">
-                <tr>
-                  <th className="table-th">Order</th>
-                  <th className="table-th">Customer</th>
-                  <th className="table-th">Subtotal</th>
-                  <th className="table-th">Express</th>
-                  <th className="table-th">Total</th>
-                  <th className="table-th">Issued</th>
-                  <th className="table-th">Status</th>
-                  <th className="table-th">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {filtered.map(row => {
-                  const profile = (row.order.profiles as any);
-                  const tNum = `#TOLL-${String(row.order.order_number).padStart(4, '0')}`;
-                  return (
-                    <tr key={row.receipt.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="table-td">
-                        <span className="font-bold text-sm text-gray-900">{tNum}</span>
-                      </td>
-                      <td className="table-td">
-                        <div className="font-medium text-sm">{profile?.full_name || '—'}</div>
-                        <div className="text-xs text-gray-400">{profile?.phone}</div>
-                      </td>
-                      <td className="table-td text-sm">{row.receipt.subtotal.toFixed(2)} SAR</td>
-                      <td className="table-td text-sm">
-                        {row.receipt.express_fee > 0 ? `${row.receipt.express_fee.toFixed(2)} SAR` : '—'}
-                      </td>
-                      <td className="table-td font-bold text-gray-900">{row.receipt.total.toFixed(2)} SAR</td>
-                      <td className="table-td text-xs text-gray-400">{formatDate(row.receipt.issued_at)}</td>
-                      <td className="table-td">
-                        {row.receipt.is_paid ? (
-                          <span className="text-xs bg-green-100 text-green-700 rounded-full px-2 py-0.5 font-semibold">✅ Paid</span>
-                        ) : (
-                          <span className="text-xs bg-amber-100 text-amber-700 rounded-full px-2 py-0.5 font-semibold">⏳ Unpaid</span>
-                        )}
-                      </td>
-                      <td className="table-td">
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => setSelected(row)}
-                            className="text-xs px-2.5 py-1 bg-gray-100 text-gray-600 rounded-lg font-semibold hover:bg-primary hover:text-white transition-colors"
-                          >
-                            View
-                          </button>
-                          {!row.receipt.is_paid && (
-                            <button
-                              onClick={() => markPaid(row)}
-                              disabled={busy === row.receipt.id}
-                              className="text-xs px-2.5 py-1 bg-green-100 text-green-700 rounded-lg font-semibold hover:bg-green-600 hover:text-white transition-colors disabled:opacity-50"
-                            >
-                              {busy === row.receipt.id ? '...' : 'Mark Paid'}
-                            </button>
+          <>
+            {/* Desktop table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="table-th">Order</th>
+                    <th className="table-th">Customer</th>
+                    <th className="table-th">Subtotal</th>
+                    <th className="table-th">Express</th>
+                    <th className="table-th">Total</th>
+                    <th className="table-th">Issued</th>
+                    <th className="table-th">Status</th>
+                    <th className="table-th">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {filtered.map(row => {
+                    const profile = (row.order.profiles as any);
+                    const tNum = `#TOLL-${String(row.order.order_number).padStart(4, '0')}`;
+                    return (
+                      <tr key={row.receipt.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="table-td">
+                          <span className="font-bold text-sm text-gray-900">{tNum}</span>
+                        </td>
+                        <td className="table-td">
+                          <div className="font-medium text-sm">{profile?.full_name || '—'}</div>
+                          <div className="text-xs text-gray-400">{profile?.phone}</div>
+                        </td>
+                        <td className="table-td text-sm">{row.receipt.subtotal.toFixed(2)} SAR</td>
+                        <td className="table-td text-sm">
+                          {row.receipt.express_fee > 0 ? `${row.receipt.express_fee.toFixed(2)} SAR` : '—'}
+                        </td>
+                        <td className="table-td font-bold text-gray-900">{row.receipt.total.toFixed(2)} SAR</td>
+                        <td className="table-td text-xs text-gray-400">{formatDate(row.receipt.issued_at)}</td>
+                        <td className="table-td">
+                          {row.receipt.is_paid ? (
+                            <span className="text-xs bg-green-100 text-green-700 rounded-full px-2 py-0.5 font-semibold">✅ Paid</span>
+                          ) : (
+                            <span className="text-xs bg-amber-100 text-amber-700 rounded-full px-2 py-0.5 font-semibold">⏳ Unpaid</span>
                           )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </td>
+                        <td className="table-td">
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setSelected(row)}
+                              className="text-xs px-2.5 py-1 bg-gray-100 text-gray-600 rounded-lg font-semibold hover:bg-primary hover:text-white transition-colors"
+                            >
+                              View
+                            </button>
+                            {!row.receipt.is_paid && (
+                              <button
+                                onClick={() => markPaid(row)}
+                                disabled={busy === row.receipt.id}
+                                className="text-xs px-2.5 py-1 bg-green-100 text-green-700 rounded-lg font-semibold hover:bg-green-600 hover:text-white transition-colors disabled:opacity-50"
+                              >
+                                {busy === row.receipt.id ? '...' : 'Mark Paid'}
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <div className="md:hidden divide-y divide-gray-50">
+              {filtered.map(row => {
+                const profile = (row.order.profiles as any);
+                const tNum = `#TOLL-${String(row.order.order_number).padStart(4, '0')}`;
+                return (
+                  <div key={row.receipt.id} className="px-4 py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-sm text-gray-900 truncate">{tNum}</span>
+                      {row.receipt.is_paid ? (
+                        <span className="text-xs bg-green-100 text-green-700 rounded-full px-2 py-0.5 font-semibold flex-shrink-0">✅ Paid</span>
+                      ) : (
+                        <span className="text-xs bg-amber-100 text-amber-700 rounded-full px-2 py-0.5 font-semibold flex-shrink-0">⏳ Unpaid</span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between gap-2 mt-1.5">
+                      <div className="min-w-0">
+                        <div className="font-medium text-sm truncate">{profile?.full_name || '—'}</div>
+                        <div className="text-xs text-gray-400 truncate">{profile?.phone}</div>
+                      </div>
+                      <span className="font-bold text-gray-900 flex-shrink-0">{row.receipt.total.toFixed(2)} SAR</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 mt-2">
+                      <span className="text-xs text-gray-400">{formatDate(row.receipt.issued_at)}</span>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setSelected(row)}
+                          className="text-xs px-2.5 py-1 bg-gray-100 text-gray-600 rounded-lg font-semibold hover:bg-primary hover:text-white transition-colors"
+                        >
+                          View
+                        </button>
+                        {!row.receipt.is_paid && (
+                          <button
+                            onClick={() => markPaid(row)}
+                            disabled={busy === row.receipt.id}
+                            className="text-xs px-2.5 py-1 bg-green-100 text-green-700 rounded-lg font-semibold hover:bg-green-600 hover:text-white transition-colors disabled:opacity-50"
+                          >
+                            {busy === row.receipt.id ? '...' : 'Mark Paid'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
 

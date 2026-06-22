@@ -44,17 +44,17 @@ export default function Customers() {
   });
 
   return (
-    <div className="p-8 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-4 md:p-8 space-y-5 md:space-y-6">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Customers</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{customers.length} registered users</p>
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900">Customers</h1>
+          <p className="text-xs md:text-sm text-gray-500 mt-0.5">{customers.length} registered users</p>
         </div>
-        <button onClick={loadCustomers} className="btn-ghost">🔄 Refresh</button>
+        <button onClick={loadCustomers} className="btn-ghost flex-shrink-0">🔄 <span className="hidden sm:inline">Refresh</span></button>
       </div>
 
       <input
-        className="input w-64"
+        className="input w-full sm:w-64"
         placeholder="Search by phone or name..."
         value={search}
         onChange={e => setSearch(e.target.value)}
@@ -66,48 +66,81 @@ export default function Customers() {
             <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-100">
-                <tr>
-                  <th className="table-th">Customer</th>
-                  <th className="table-th">Phone</th>
-                  <th className="table-th">Orders</th>
-                  <th className="table-th">Wallet Balance</th>
-                  <th className="table-th">Language</th>
-                  <th className="table-th">Joined</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {filtered.map(c => (
-                  <tr key={c.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="table-td">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-primary-light flex items-center justify-center text-primary font-bold text-sm flex-shrink-0">
-                          {(c.full_name ?? c.phone ?? '?')[0]?.toUpperCase()}
-                        </div>
-                        <span className="font-medium">{c.full_name ?? '—'}</span>
-                      </div>
-                    </td>
-                    <td className="table-td font-mono text-sm">{c.phone ?? '—'}</td>
-                    <td className="table-td">
-                      <span className={`font-semibold ${(c.order_count ?? 0) > 0 ? 'text-primary' : 'text-gray-400'}`}>
-                        {c.order_count ?? 0}
-                      </span>
-                    </td>
-                    <td className="table-td font-semibold">{c.wallet_balance?.toFixed(2)} SAR</td>
-                    <td className="table-td">
-                      <span className="badge bg-gray-100 text-gray-600">{c.language?.toUpperCase() ?? 'AR'}</span>
-                    </td>
-                    <td className="table-td text-xs text-gray-400">{formatDate(c.created_at)}</td>
+          <>
+            {/* Desktop table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="table-th">Customer</th>
+                    <th className="table-th">Phone</th>
+                    <th className="table-th">Orders</th>
+                    <th className="table-th">Wallet Balance</th>
+                    <th className="table-th">Language</th>
+                    <th className="table-th">Joined</th>
                   </tr>
-                ))}
-                {filtered.length === 0 && (
-                  <tr><td colSpan={6} className="table-td text-center text-gray-400 py-12">No customers found</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {filtered.map(c => (
+                    <tr key={c.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="table-td">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-primary-light flex items-center justify-center text-primary font-bold text-sm flex-shrink-0">
+                            {(c.full_name ?? c.phone ?? '?')[0]?.toUpperCase()}
+                          </div>
+                          <span className="font-medium">{c.full_name ?? '—'}</span>
+                        </div>
+                      </td>
+                      <td className="table-td font-mono text-sm">{c.phone ?? '—'}</td>
+                      <td className="table-td">
+                        <span className={`font-semibold ${(c.order_count ?? 0) > 0 ? 'text-primary' : 'text-gray-400'}`}>
+                          {c.order_count ?? 0}
+                        </span>
+                      </td>
+                      <td className="table-td font-semibold">{c.wallet_balance?.toFixed(2)} SAR</td>
+                      <td className="table-td">
+                        <span className="badge bg-gray-100 text-gray-600">{c.language?.toUpperCase() ?? 'AR'}</span>
+                      </td>
+                      <td className="table-td text-xs text-gray-400">{formatDate(c.created_at)}</td>
+                    </tr>
+                  ))}
+                  {filtered.length === 0 && (
+                    <tr><td colSpan={6} className="table-td text-center text-gray-400 py-12">No customers found</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <div className="md:hidden divide-y divide-gray-50">
+              {filtered.map(c => (
+                <div key={c.id} className="px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-primary-light flex items-center justify-center text-primary font-bold text-sm flex-shrink-0">
+                      {(c.full_name ?? c.phone ?? '?')[0]?.toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium truncate">{c.full_name ?? '—'}</p>
+                      <p className="font-mono text-xs text-gray-500 truncate">{c.phone ?? '—'}</p>
+                    </div>
+                    <span className="badge bg-gray-100 text-gray-600 flex-shrink-0">{c.language?.toUpperCase() ?? 'AR'}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-2 text-xs">
+                    <span className="text-gray-500">
+                      Orders <span className={`font-semibold ${(c.order_count ?? 0) > 0 ? 'text-primary' : 'text-gray-400'}`}>{c.order_count ?? 0}</span>
+                    </span>
+                    <span className="text-gray-500">
+                      Wallet <span className="font-semibold text-gray-900">{c.wallet_balance?.toFixed(2)} SAR</span>
+                    </span>
+                    <span className="text-gray-400">{formatDate(c.created_at)}</span>
+                  </div>
+                </div>
+              ))}
+              {filtered.length === 0 && (
+                <p className="text-center text-gray-400 py-12">No customers found</p>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>

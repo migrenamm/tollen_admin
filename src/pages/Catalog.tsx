@@ -310,7 +310,7 @@ export default function Catalog() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-6 md:p-8 space-y-5 max-w-7xl mx-auto">
+    <div className="p-4 md:p-8 space-y-5 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -351,8 +351,8 @@ export default function Catalog() {
         <>
           {/* Filters */}
           <div className="flex flex-wrap gap-3">
-            <input className="input w-56" placeholder="Search items..." value={search} onChange={e => setSearch(e.target.value)} />
-            <select className="input w-52" value={filterCat} onChange={e => setFilterCat(e.target.value)}>
+            <input className="input w-full sm:w-56" placeholder="Search items..." value={search} onChange={e => setSearch(e.target.value)} />
+            <select className="input w-full sm:w-52" value={filterCat} onChange={e => setFilterCat(e.target.value)}>
               <option value="all">All categories</option>
               {categories.map(c => <option key={c.id} value={c.id}>{c.name_ar} / {c.name_en}</option>)}
             </select>
@@ -371,7 +371,8 @@ export default function Catalog() {
           </div>
 
           <div className="card overflow-hidden">
-            <div className="overflow-x-auto">
+            {/* Desktop table */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
@@ -453,13 +454,66 @@ export default function Catalog() {
                 </tbody>
               </table>
             </div>
+
+            {/* Mobile cards */}
+            <div className="md:hidden divide-y divide-gray-50">
+              {filteredItems.map(item => {
+                const cat = item.categories as any;
+                return (
+                  <div key={item.id} className={`p-4 ${!item.is_active ? 'opacity-50' : ''}`}>
+                    <div className="flex items-center gap-2.5">
+                      {item.image_url
+                        ? <img src={item.image_url} alt="" className="w-10 h-10 rounded-lg object-cover border border-gray-100 shrink-0" />
+                        : <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-base shrink-0">👕</div>}
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-gray-900 truncate">{item.name_ar}</div>
+                        <div className="text-xs text-gray-400 truncate">{item.name_en} · {cat?.name_ar ?? '—'}</div>
+                      </div>
+                      {item.order_count > 0 && (
+                        <span className="text-xs font-bold text-orange-500 flex-shrink-0">🔥 {item.order_count}</span>
+                      )}
+                      <button onClick={() => toggleItem(item.id, item.is_active)}
+                        className={`relative inline-flex h-5 w-9 rounded-full transition-colors flex-shrink-0 ${item.is_active ? 'bg-primary' : 'bg-gray-200'}`}>
+                        <span className={`inline-block h-4 w-4 mt-0.5 rounded-full bg-white shadow transition-transform ${item.is_active ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                      </button>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-3 gap-x-2 gap-y-1.5 text-xs">
+                      <div className="text-gray-400 col-span-3 font-semibold">عادي — Normal</div>
+                      <div><span className="text-gray-400 block">غسيل</span><PriceCell item={item} field="wash_price" /></div>
+                      <div><span className="text-gray-400 block">كوي</span><PriceCell item={item} field="iron_price" /></div>
+                      <div><span className="text-gray-400 block">غسيل+كوي</span><PriceCell item={item} field="wash_iron_price" /></div>
+                      <div className="text-orange-400 col-span-3 font-semibold mt-1">⚡ مستعجل — Express</div>
+                      <div><span className="text-orange-400 block">غسيل</span><PriceCell item={item} field="express_wash_price" /></div>
+                      <div><span className="text-orange-400 block">كوي</span><PriceCell item={item} field="express_iron_price" /></div>
+                      <div><span className="text-orange-400 block">غسيل+كوي</span><PriceCell item={item} field="express_wash_iron_price" /></div>
+                    </div>
+
+                    <div className="mt-3 flex gap-2">
+                      <button onClick={() => openEditItem(item)}
+                        className="flex-1 py-1.5 text-xs font-semibold border border-gray-200 rounded-lg text-gray-600 hover:border-primary hover:text-primary">
+                        ✏️ Edit
+                      </button>
+                      <button onClick={() => deleteItem(item.id)} disabled={busy === `item-${item.id}`}
+                        className="py-1.5 px-3 text-xs font-semibold border border-red-200 rounded-lg text-red-500 hover:bg-red-50 disabled:opacity-50">
+                        {busy === `item-${item.id}` ? '...' : '🗑'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              {filteredItems.length === 0 && (
+                <p className="text-center text-gray-400 py-12">No items found</p>
+              )}
+            </div>
           </div>
           <p className="text-xs text-gray-400">💡 Click any price to edit inline. Press Enter to save. 🔥 = order count (الأكثر طلباً)</p>
         </>
       ) : (
         /* ── CATEGORIES TAB ── */
         <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
@@ -505,6 +559,34 @@ export default function Catalog() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="md:hidden divide-y divide-gray-50">
+            {categories.map(cat => (
+              <div key={cat.id} className={`p-4 flex items-center gap-2.5 ${!cat.is_active ? 'opacity-50' : ''}`}>
+                {cat.image_url
+                  ? <img src={cat.image_url} alt="" className="w-10 h-10 rounded-lg object-cover border border-gray-100 shrink-0" />
+                  : <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-base shrink-0">📂</div>}
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-gray-900 truncate">{cat.name_ar}</div>
+                  <div className="text-xs text-gray-400 truncate">
+                    {cat.name_en} · {items.filter(i => i.category_id === cat.id).length} items · sort {cat.sort_order}
+                  </div>
+                </div>
+                <button onClick={() => toggleCategory(cat.id, cat.is_active)}
+                  className={`relative inline-flex h-5 w-9 rounded-full transition-colors flex-shrink-0 ${cat.is_active ? 'bg-primary' : 'bg-gray-200'}`}>
+                  <span className={`inline-block h-4 w-4 mt-0.5 rounded-full bg-white shadow transition-transform ${cat.is_active ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </button>
+                <button onClick={() => deleteCategory(cat.id)} disabled={busy === `cat-${cat.id}`}
+                  className="text-red-400 hover:text-red-600 disabled:opacity-50 flex-shrink-0">
+                  {busy === `cat-${cat.id}` ? '...' : '🗑'}
+                </button>
+              </div>
+            ))}
+            {categories.length === 0 && (
+              <p className="text-center text-gray-400 py-12">No categories yet</p>
+            )}
           </div>
         </div>
       )}

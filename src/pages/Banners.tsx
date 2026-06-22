@@ -171,11 +171,11 @@ export default function Banners() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 md:p-6 max-w-4xl mx-auto">
+      <div className="flex items-center justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">🖼️ Banners</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Manage the home screen image slider</p>
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900">🖼️ Banners</h1>
+          <p className="text-xs md:text-sm text-gray-500 mt-0.5">Manage the home screen image slider</p>
         </div>
         <button
           onClick={openAdd}
@@ -192,7 +192,7 @@ export default function Banners() {
       ) : (
         <div className="space-y-3">
           {banners.map(b => (
-            <div key={b.id} className="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-4">
+            <div key={b.id} className="bg-white border border-gray-200 rounded-xl p-4 flex flex-wrap items-center gap-3 sm:gap-4">
               <img
                 src={b.image_url}
                 alt={b.title}
@@ -205,12 +205,12 @@ export default function Banners() {
                   {' · '}order {b.sort_order}
                 </p>
               </div>
-              <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+              <span className={`text-xs px-2.5 py-1 rounded-full font-medium flex-shrink-0 ${
                 b.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
               }`}>
                 {b.is_active ? 'Active' : 'Hidden'}
               </span>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-shrink-0">
                 <button
                   onClick={() => openEdit(b)}
                   className="text-sm px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50"

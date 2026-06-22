@@ -128,17 +128,17 @@ export default function Staff() {
   }
 
   return (
-    <div className="p-6 md:p-8 space-y-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between">
+    <div className="p-4 md:p-8 space-y-5 md:space-y-6 max-w-4xl mx-auto">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Staff Management</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Create and manage staff accounts and roles</p>
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900">Staff Management</h1>
+          <p className="text-xs md:text-sm text-gray-500 mt-0.5">Create and manage staff accounts and roles</p>
         </div>
         <button
           onClick={() => { setShowCreate(true); setCreateError(''); }}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary-dark transition-colors shadow-sm"
+          className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary-dark transition-colors shadow-sm flex-shrink-0"
         >
-          <span className="text-lg leading-none">+</span> Add Staff
+          <span className="text-lg leading-none">+</span> <span className="hidden sm:inline">Add Staff</span><span className="sm:hidden">Add</span>
         </button>
       </div>
 
@@ -160,8 +160,8 @@ export default function Staff() {
         ) : (
           <div className="divide-y divide-gray-50">
             {staff.map(member => (
-              <div key={member.id} className="px-5 py-4 hover:bg-gray-50 transition-colors">
-                <div className="flex items-start justify-between gap-4">
+              <div key={member.id} className="px-4 md:px-5 py-4 hover:bg-gray-50 transition-colors">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
                   {/* Identity */}
                   <div className="flex-1 min-w-0">
                     {editingId === member.id ? (
@@ -207,8 +207,8 @@ export default function Staff() {
                   </div>
 
                   {/* Role toggles + remove */}
-                  <div className="flex flex-col gap-1.5 items-end shrink-0">
-                    <div className="flex flex-col gap-1.5">
+                  <div className="flex flex-col gap-1.5 items-start sm:items-end shrink-0">
+                    <div className="flex flex-row flex-wrap sm:flex-col gap-x-4 gap-y-1.5">
                       {ALL_ROLES.map(role => {
                         const has = member.roles.includes(role);
                         const isBusy = busy === `${member.id}-${role}`;
@@ -221,7 +221,7 @@ export default function Staff() {
                               onChange={() => toggleRole(member.id, role, has)}
                               className="w-4 h-4 accent-primary"
                             />
-                            <span className="text-xs text-gray-600 w-24">{isBusy ? '...' : ROLE_LABELS[role]}</span>
+                            <span className="text-xs text-gray-600 sm:w-24">{isBusy ? '...' : ROLE_LABELS[role]}</span>
                           </label>
                         );
                       })}

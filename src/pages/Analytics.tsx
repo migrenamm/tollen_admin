@@ -356,8 +356,8 @@ export default function Analytics() {
     <div className="flex flex-col h-full overflow-hidden">
 
       {/* ── Header ── */}
-      <div className="px-5 pt-4 pb-3 bg-white border-b border-slate-100 flex-shrink-0">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
+      <div className="px-4 md:px-5 pt-3 md:pt-4 pb-3 bg-white border-b border-slate-100 flex-shrink-0">
+        <div className="flex items-center justify-between gap-3 md:gap-4 flex-wrap">
           <div>
             <h1 className="text-lg font-bold text-slate-800">Customer Map</h1>
             <p className="text-xs text-slate-400 mt-0.5">
@@ -447,8 +447,8 @@ export default function Analytics() {
         )}
       </div>
 
-      {/* ── Filters ── */}
-      <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 flex-shrink-0 flex flex-col gap-1.5">
+      {/* ── Filters ── (capped + scrollable on mobile so the map keeps usable height) */}
+      <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 flex-shrink-0 flex flex-col gap-1.5 max-h-[40vh] overflow-y-auto md:max-h-none md:overflow-visible">
         <div className="flex flex-wrap gap-3">
           <FilterRow title="Gender">
             {(['all', 'male', 'female'] as SexFilter[]).map(v => (
