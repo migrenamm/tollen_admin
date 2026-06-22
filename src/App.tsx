@@ -9,6 +9,8 @@ import Banners from './pages/Banners';
 import Staff from './pages/Staff';
 import Receipts from './pages/Receipts';
 import Support from './pages/Support';
+import Settings from './pages/Settings';
+import Analytics from './pages/Analytics';
 import DeliveryDashboard from './pages/DeliveryDashboard';
 import CleanerDashboard from './pages/CleanerDashboard';
 import Layout from './components/Layout';
@@ -62,6 +64,8 @@ function ProtectedRoutes() {
             <Route path="/staff" element={<Staff />} />
             <Route path="/receipts" element={<Receipts />} />
             <Route path="/support" element={<Support />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/analytics" element={<Analytics />} />
           </>
         )}
 

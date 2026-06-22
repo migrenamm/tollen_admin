@@ -8,41 +8,55 @@ interface Props {
 }
 
 export default function QRScanner({ onScan, onClose, title = 'Scan QR Code' }: Props) {
-  const scannerRef = useRef<Html5Qrcode | null>(null);
+  // Stable, unique container id per component instance. Created once so it
+  // survives React StrictMode's double-mount and never collides with another
+  // QRScanner rendered elsewhere on the page.
+  const [readerId] = useState(() => 'qr-reader-' + Math.random().toString(36).slice(2));
+  const onScanRef = useRef(onScan);
+  onScanRef.current = onScan;
+
   const [error, setError] = useState('');
   const [manualCode, setManualCode] = useState('');
-  const [started, setStarted] = useState(false);
 
   useEffect(() => {
-    const scannerId = 'qr-reader-' + Math.random().toString(36).slice(2);
-    const el = document.getElementById('qr-reader-container');
-    if (el) el.id = scannerId;
-
-    const scanner = new Html5Qrcode(scannerId);
-    scannerRef.current = scanner;
-
+    const scanner = new Html5Qrcode(readerId);
     let scanned = false;
+    let started = false;
+    // Tracks whether this effect run has been cleaned up. Under StrictMode the
+    // first run is torn down before camera permission resolves; we must not
+    // leave a started scanner attached to an unmounted node.
+    let cancelled = false;
 
-    scanner.start(
-      { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 250, height: 250 } },
-      (decoded) => {
-        if (scanned) return;
-        scanned = true;
-        try { scanner.stop().catch(() => {}); } catch {}
-        onScan(decoded);
-      },
-      () => {}
-    ).then(() => {
-      setStarted(true);
-    }).catch(() => {
-      setError('Camera not available. Enter code manually.');
-    });
+    scanner
+      .start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        (decoded) => {
+          if (scanned) return;
+          scanned = true;
+          scanner.stop().catch(() => {});
+          onScanRef.current(decoded);
+        },
+        () => {}
+      )
+      .then(() => {
+        started = true;
+        // Effect was cleaned up while permission was still pending — stop now
+        // that the camera has actually started, otherwise it streams into a
+        // detached node (the white-screen bug).
+        if (cancelled) scanner.stop().catch(() => {});
+      })
+      .catch(() => {
+        if (!cancelled) setError('Camera not available. Enter code manually.');
+      });
 
     return () => {
-      try { scanner.stop().catch(() => {}); } catch {}
+      cancelled = true;
+      // Only stop a scanner that finished starting; stopping a still-pending
+      // scanner throws and leaves the stream half-initialized.
+      if (started && !scanned) scanner.stop().catch(() => {});
     };
-  }, []);
+  }, [readerId]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
@@ -58,7 +72,7 @@ export default function QRScanner({ onScan, onClose, title = 'Scan QR Code' }: P
               <p className="text-sm text-gray-500 mb-4">{error}</p>
             </div>
           ) : (
-            <div id="qr-reader-container" className="w-full rounded-lg overflow-hidden" />
+            <div id={readerId} className="w-full rounded-lg overflow-hidden" />
           )}
 
           <div className="mt-4">

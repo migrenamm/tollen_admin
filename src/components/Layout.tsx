@@ -32,6 +32,8 @@ export default function Layout({ children }: { children: ReactNode }) {
     { to: '/staff',     icon: '👤', label: 'Staff' },
     { to: '/receipts',  icon: '🧾', label: 'Receipts' },
     { to: '/support',   icon: '💬', label: 'Support' },
+    { to: '/analytics', icon: '🗺️', label: 'Analytics' },
+    { to: '/settings',  icon: '⚙️', label: 'Settings' },
   ];
 
   const navItems = isAdmin ? adminNav : [
@@ -171,7 +173,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           </button>
         </div>
 
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto flex flex-col min-h-0">
           {children}
         </main>
       </div>
