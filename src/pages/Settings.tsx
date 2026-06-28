@@ -25,11 +25,21 @@ export default function Settings() {
   const [zoneSaving, setZoneSaving] = useState(false);
   const [zoneSaved, setZoneSaved] = useState(false);
 
+  // ── Legal documents (Terms / Privacy, EN + AR) ───────────────────────────────
+  type Legal = { terms_en: string; terms_ar: string; privacy_en: string; privacy_ar: string };
+  const EMPTY_LEGAL: Legal = { terms_en: '', terms_ar: '', privacy_en: '', privacy_ar: '' };
+  const [legal, setLegal] = useState<Legal>(EMPTY_LEGAL);
+  const [legalOriginal, setLegalOriginal] = useState<Legal>(EMPTY_LEGAL);
+  const [legalSaving, setLegalSaving] = useState(false);
+  const [legalSaved, setLegalSaved] = useState(false);
+
   useEffect(() => {
     Promise.all([
       supabase.from('settings').select('value').eq('key', 'share_message').single(),
       supabase.from('settings').select('value').eq('key', 'service_zone').maybeSingle(),
-    ]).then(([{ data: sm }, { data: sz }]) => {
+      supabase.from('settings').select('key, value')
+        .in('key', ['terms_en', 'terms_ar', 'privacy_en', 'privacy_ar']),
+    ]).then(([{ data: sm }, { data: sz }, { data: legalRows }]) => {
       const val = sm?.value ?? '';
       setShareMessage(val);
       setOriginal(val);
@@ -39,6 +49,12 @@ export default function Settings() {
           if (Array.isArray(parsed)) { setZonePoints(parsed); setOrigZone(parsed); }
         } catch {}
       }
+      const loaded: Legal = { ...EMPTY_LEGAL };
+      for (const row of legalRows ?? []) {
+        if (row.key in loaded) (loaded as any)[row.key] = row.value ?? '';
+      }
+      setLegal(loaded);
+      setLegalOriginal(loaded);
       setLoading(false);
     });
   }, []);
@@ -67,6 +83,22 @@ export default function Settings() {
 
   const isDirty = shareMessage !== original;
   const isZoneDirty = JSON.stringify(zonePoints) !== JSON.stringify(origZone);
+  const isLegalDirty = JSON.stringify(legal) !== JSON.stringify(legalOriginal);
+
+  async function saveLegal() {
+    setLegalSaving(true);
+    const now = new Date().toISOString();
+    await supabase.from('settings').upsert([
+      { key: 'terms_en',   value: legal.terms_en,   updated_at: now },
+      { key: 'terms_ar',   value: legal.terms_ar,   updated_at: now },
+      { key: 'privacy_en', value: legal.privacy_en, updated_at: now },
+      { key: 'privacy_ar', value: legal.privacy_ar, updated_at: now },
+    ]);
+    setLegalOriginal(legal);
+    setLegalSaving(false);
+    setLegalSaved(true);
+    setTimeout(() => setLegalSaved(false), 2500);
+  }
 
   return (
     <div className="p-4 md:p-6 max-w-2xl">
@@ -206,6 +238,77 @@ export default function Settings() {
             ⚠️ You cleared the zone. Save to remove the restriction, or reset to restore it.
           </p>
         )}
+      </div>
+
+      {/* ── Legal Documents ────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 md:p-6 mt-6">
+        <h2 className="text-base font-semibold text-slate-700 mb-1">Legal Documents</h2>
+        <p className="text-xs text-slate-400 mb-4">
+          Terms of Service and Privacy Policy shown in the app's Account screen.
+          Each user sees the version matching their app language. Plain text —
+          blank lines separate paragraphs. Saves take effect immediately.
+        </p>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 mb-1.5">Terms of Service — English</label>
+            <textarea
+              className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 resize-y focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent leading-relaxed"
+              rows={10}
+              dir="ltr"
+              value={legal.terms_en}
+              onChange={e => setLegal(v => ({ ...v, terms_en: e.target.value }))}
+              disabled={loading}
+              placeholder="Enter the English Terms of Service…"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 mb-1.5">شروط الخدمة — العربية</label>
+            <textarea
+              className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 resize-y focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent leading-relaxed"
+              rows={10}
+              dir="rtl"
+              value={legal.terms_ar}
+              onChange={e => setLegal(v => ({ ...v, terms_ar: e.target.value }))}
+              disabled={loading}
+              placeholder="أدخل شروط الخدمة بالعربية…"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 mb-1.5">Privacy Policy — English</label>
+            <textarea
+              className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 resize-y focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent leading-relaxed"
+              rows={10}
+              dir="ltr"
+              value={legal.privacy_en}
+              onChange={e => setLegal(v => ({ ...v, privacy_en: e.target.value }))}
+              disabled={loading}
+              placeholder="Enter the English Privacy Policy…"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 mb-1.5">سياسة الخصوصية — العربية</label>
+            <textarea
+              className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 resize-y focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent leading-relaxed"
+              rows={10}
+              dir="rtl"
+              value={legal.privacy_ar}
+              onChange={e => setLegal(v => ({ ...v, privacy_ar: e.target.value }))}
+              disabled={loading}
+              placeholder="أدخل سياسة الخصوصية بالعربية…"
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end mt-4">
+          <button
+            onClick={saveLegal}
+            disabled={legalSaving || !isLegalDirty || loading}
+            className="px-5 py-2 bg-primary text-white text-sm font-semibold rounded-xl disabled:opacity-40 transition-opacity"
+          >
+            {legalSaving ? 'Saving…' : legalSaved ? '✓ Saved' : 'Save Legal Documents'}
+          </button>
+        </div>
       </div>
     </div>
   );
