@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { Order, OrderStatus, Receipt, ReceiptItem, StaffProfile } from '../types';
-import { formatDate } from '../lib/utils';
+import { formatDate, EXPRESS_FEE } from '../lib/utils';
 import QRScanner from '../components/QRScanner';
 import OrderReceipt from '../components/OrderReceipt';
 
@@ -25,12 +25,11 @@ const SERVICE_LABEL: Record<string, string> = {
 interface CatalogItem { id: string; name_ar: string; name_en: string; wash_price: number; iron_price: number; wash_iron_price: number; express_wash_price: number; express_iron_price: number; express_wash_iron_price: number; }
 interface UnsortedItem { item_id: string; name_ar: string; name_en: string; quantity: number; unit_price: number; service_type: string; speed: 'normal' | 'express'; }
 
-function priceForService(cat: CatalogItem, svc: string, speed: string = 'normal'): number {
-  if (speed === 'express') {
-    if (svc === 'iron') return +cat.express_iron_price;
-    if (svc === 'wash_iron') return +cat.express_wash_iron_price;
-    return +cat.express_wash_price;
-  }
+// Express is now a flat order-level fee (9 SAR added once), NOT a per-item price
+// bump. So item pricing always uses the normal catalog rate regardless of speed;
+// the separate express_* catalog prices are intentionally ignored. The `speed`
+// param is kept for call-site compatibility but no longer changes the price.
+function priceForService(cat: CatalogItem, svc: string, _speed: string = 'normal'): number {
   if (svc === 'iron') return +cat.iron_price;
   if (svc === 'wash_iron') return +cat.wash_iron_price;
   return +cat.wash_price;
@@ -145,7 +144,7 @@ export default function Orders() {
         subtotal: i.subtotal,
       }));
       const subtotal = snapshot.reduce((s, i) => s + i.subtotal, 0);
-      const express_fee = selectedOrder.speed === 'express' ? +(subtotal * 0.3).toFixed(2) : 0;
+      const express_fee = selectedOrder.speed === 'express' ? EXPRESS_FEE : 0;
       const total = +(subtotal + express_fee).toFixed(2);
       const { data: rec } = await supabase.from('receipts').insert({
         order_id: selectedOrder.id,
@@ -200,111 +199,22 @@ export default function Orders() {
         speed: spd,
       }));
 
-    const expressItemsList = unsortedItems.filter(it => it.speed === 'express' && it.item_id);
-    const normalItemsList  = unsortedItems.filter(it => it.speed === 'normal'  && it.item_id);
-    // Never re-split an already-split order — treat as single-speed edit
-    const isSplitOrder = !!(selectedOrder.split_from_order_id || selectedOrder.split_child_order_id);
-    const hasMixed = !isSplitOrder && expressItemsList.length > 0 && normalItemsList.length > 0;
-
-    if (hasMixed) {
-      // ── SPLIT: two separate orders, each with their own lifecycle ──
-      const expSnap  = toSnapshot(expressItemsList, 'express');
-      const expBase  = +expSnap.reduce((s, i) => s + i.subtotal, 0).toFixed(2);
-      const expFee   = +(expBase * 0.3).toFixed(2);
-      const expTotal = +(expBase + expFee).toFixed(2);
-
-      const normSnap  = toSnapshot(normalItemsList, 'normal');
-      const normBase  = +normSnap.reduce((s, i) => s + i.subtotal, 0).toFixed(2);
-      const normTotal = normBase;
-
-      const now = new Date().toISOString();
-      const orig = selectedOrder as any;
-
-      // 1. Create new express order (inherit pickup context from original)
-      const { data: expOrder, error: expErr } = await supabase.from('orders').insert({
-        user_id: selectedOrder.user_id,
-        address_id: selectedOrder.address_id,
-        type: 'unsorted',
-        speed: 'express',
-        status: 'picked_up',
-        service_type: null,
-        total: expTotal,
-        notes: selectedOrder.notes || null,
-        confirmed_by: orig.confirmed_by || null,
-        assigned_delivery_id: orig.assigned_delivery_id || null,
-        delivery_assigned_by: orig.delivery_assigned_by || null,
-        picked_up_confirmed_by: orig.picked_up_confirmed_by || null,
-        is_paid: false,
-        split_from_order_id: selectedOrder.id,
-        created_at: now,
-        updated_at: now,
-      }).select().single();
-
-      if (expErr || !expOrder) {
-        alert('Failed to create express order. Please try again.');
-        setBusy(false);
-        return;
-      }
-
-      // 2. Create receipt for the new express order
-      await supabase.from('receipts').insert({
-        order_id: expOrder.id,
-        items_snapshot: expSnap,
-        subtotal: expBase,
-        express_fee: expFee,
-        total: expTotal,
-        notes: unsortedNotes || null,
-        issued_by: adminProfile?.id,
-      });
-
-      // 3. Update original order → becomes the normal order, link to child
-      await supabase.from('orders').update({
-        speed: 'normal',
-        total: normTotal,
-        split_child_order_id: expOrder.id,
-        updated_at: now,
-      }).eq('id', selectedOrder.id);
-
-      // 4. Create or update receipt for the normal order (original)
-      if (receipt) {
-        await supabase.from('receipts').update({
-          items_snapshot: normSnap,
-          subtotal: normBase,
-          express_fee: 0,
-          total: normTotal,
-          notes: unsortedNotes || null,
-        }).eq('id', receipt.id);
-      } else {
-        await supabase.from('receipts').insert({
-          order_id: selectedOrder.id,
-          items_snapshot: normSnap,
-          subtotal: normBase,
-          express_fee: 0,
-          total: normTotal,
-          notes: unsortedNotes || null,
-          issued_by: adminProfile?.id,
-        });
-      }
-
-      // 5. Refresh list and deselect so admin can see both orders
-      setShowUnsortedForm(false);
-      setUnsortedItems([]);
-      setUnsortedNotes('');
-      setSelectedOrder(null);
-      setReceipt(null);
-      setBusy(false);
-      await loadOrders();
-      const expNum = `TOLL-${String(expOrder.order_number).padStart(4, '0')}`;
-      alert(`✅ تم تقسيم الطلب إلى طلبين:\n⚡ #${expNum} — مستعجل (${expTotal.toFixed(2)} SAR)\n🕐 #${trackingNum} — عادي (${normTotal.toFixed(2)} SAR)\n\nيمكنك الآن تعيين منظف ومندوب لكل طلب على حدة.`);
-      return;
-    }
-
-    // ── SINGLE SPEED: no split needed ──
-    const snapshot: ReceiptItem[] = toSnapshot(unsortedItems, unsortedItems[0]?.speed ?? 'normal');
+    // Orders are never split. If ANY item is express, the whole order is
+    // express and a single flat EXPRESS_FEE applies; staff deliver all as express.
+    const isExpress = unsortedItems.some(it => it.speed === 'express');
+    const snapshot: ReceiptItem[] = toSnapshot(unsortedItems, isExpress ? 'express' : 'normal');
     const subtotal    = +snapshot.reduce((s, i) => s + i.subtotal, 0).toFixed(2);
-    const expressBase = +snapshot.filter(i => i.speed === 'express').reduce((s, i) => s + i.subtotal, 0).toFixed(2);
-    const express_fee = +(expressBase * 0.3).toFixed(2);
+    const express_fee = isExpress ? EXPRESS_FEE : 0;
     const total       = +(subtotal + express_fee).toFixed(2);
+
+    // Keep the order's speed flag in sync with the items entered.
+    if (selectedOrder.speed !== (isExpress ? 'express' : 'normal')) {
+      await supabase.from('orders').update({
+        speed: isExpress ? 'express' : 'normal',
+        updated_at: new Date().toISOString(),
+      }).eq('id', selectedOrder.id);
+      refreshSelected({ speed: isExpress ? 'express' : 'normal' });
+    }
 
     let savedReceipt: Receipt;
     if (receipt) {
@@ -830,7 +740,7 @@ export default function Orders() {
                   ))}
                   {receipt.express_fee > 0 && (
                     <div className="flex justify-between text-gray-500">
-                      <span>رسوم المستعجل (30%)</span>
+                      <span>رسوم المستعجل (9 ر.س)</span>
                       <span>{receipt.express_fee.toFixed(2)} SAR</span>
                     </div>
                   )}
@@ -881,21 +791,13 @@ export default function Orders() {
               <button onClick={() => setShowUnsortedForm(false)} className="text-gray-400 hover:text-gray-600 text-xl font-bold">✕</button>
             </div>
             <div className="p-5 space-y-4">
-              {selectedOrder.split_child_order_id ? (
-                <div className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-600 font-semibold">
-                  🔒 تعديل القطع العادية فقط — تم فصل القطع المستعجلة في طلب منفصل
-                </div>
-              ) : selectedOrder.split_from_order_id ? (
-                <div className="bg-orange-50 border border-orange-200 rounded-xl px-3 py-2 text-xs text-orange-700 font-semibold">
-                  ⚡ تعديل القطع المستعجلة فقط — هذا الطلب نتج عن تقسيم ولا يمكن تقسيمه مجدداً
-                </div>
-              ) : selectedOrder.speed === 'express' ? (
+              {selectedOrder.speed === 'express' ? (
                 <div className="bg-orange-50 border border-orange-100 rounded-xl px-3 py-2 text-xs text-orange-700 font-semibold">
-                  ⚡ طلب مستعجل — كل قطعة مستعجلة افتراضياً، يمكنك تغيير كل قطعة على حدة
+                  ⚡ طلب مستعجل — رسوم ثابتة 9 ر.س، ويُوصَّل كل المحتوى بشكل مستعجل
                 </div>
               ) : (
                 <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 text-xs text-blue-700 font-semibold">
-                  💡 يمكنك تعيين بعض القطع كمستعجلة والأخرى عادية لإنشاء فاتورة مقسمة
+                  💡 إذا حددت أي قطعة كمستعجلة يصبح الطلب كله مستعجلاً برسوم ثابتة 9 ر.س
                 </div>
               )}
               <div className="space-y-3">
@@ -979,10 +881,12 @@ export default function Orders() {
                             type="button"
                             className={`px-3 py-1.5 font-semibold transition-colors ${item.speed === 'express' ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
                             onClick={() => {
+                              // Express is a flat order-level fee now — item price
+                              // stays at the normal rate (matches the customer app).
                               const cat = catalogItems.find(c => c.id === item.item_id);
                               setUnsortedItems(prev => prev.map((it, idx) => idx === i ? {
                                 ...it, speed: 'express',
-                                unit_price: cat ? priceForService(cat, it.service_type, 'express') : it.unit_price,
+                                unit_price: cat ? priceForService(cat, it.service_type, 'normal') : it.unit_price,
                               } : it));
                             }}
                           >
@@ -1013,36 +917,28 @@ export default function Orders() {
               />
 
               {unsortedItems.length > 0 && (() => {
-                const expressItems = unsortedItems.filter(it => it.speed === 'express' && it.item_id);
-                const normalItems  = unsortedItems.filter(it => it.speed === 'normal'  && it.item_id);
-                const expressBase  = expressItems.reduce((s, it) => s + it.quantity * it.unit_price, 0);
-                const expressFee   = +(expressBase * 0.3).toFixed(2);
-                const normalBase   = normalItems.reduce((s, it) => s + it.quantity * it.unit_price, 0);
-                const hasMixed     = expressItems.length > 0 && normalItems.length > 0;
-                const grandTotal   = +(expressBase + expressFee + normalBase).toFixed(2);
+                // One order, never split. If any item is express the whole order
+                // is express and a single flat EXPRESS_FEE applies.
+                const validItems = unsortedItems.filter(it => it.item_id);
+                const isExpress  = validItems.some(it => it.speed === 'express');
+                const subtotal   = validItems.reduce((s, it) => s + it.quantity * it.unit_price, 0);
+                const expressFee = isExpress ? EXPRESS_FEE : 0;
+                const grandTotal = +(subtotal + expressFee).toFixed(2);
                 return (
                   <div className="bg-gray-50 rounded-xl p-3 text-sm space-y-1.5">
-                    {hasMixed && (
+                    {isExpress && (
                       <div className="text-xs font-bold text-orange-600 bg-orange-50 border border-orange-200 rounded-lg px-2 py-1.5 mb-2">
-                        ⚡ سيتم إنشاء طلبين منفصلين — كل طلب له منظف ومندوب خاص به
+                        ⚡ طلب مستعجل — سيتم توصيل جميع القطع بشكل مستعجل
                       </div>
                     )}
-                    {expressItems.length > 0 && (
-                      <>
-                        <div className="flex justify-between text-orange-700 font-semibold">
-                          <span>⚡ مستعجل ({expressItems.reduce((s, it) => s + it.quantity, 0)} قطعة)</span>
-                          <span>{expressBase.toFixed(2)} SAR</span>
-                        </div>
-                        <div className="flex justify-between text-gray-500 text-xs">
-                          <span>رسوم المستعجل (30%)</span>
-                          <span>{expressFee.toFixed(2)} SAR</span>
-                        </div>
-                      </>
-                    )}
-                    {normalItems.length > 0 && (
-                      <div className="flex justify-between text-gray-700 font-semibold">
-                        <span>🕐 عادي ({normalItems.reduce((s, it) => s + it.quantity, 0)} قطعة)</span>
-                        <span>{normalBase.toFixed(2)} SAR</span>
+                    <div className="flex justify-between text-gray-700 font-semibold">
+                      <span>الإجمالي الفرعي</span>
+                      <span>{subtotal.toFixed(2)} SAR</span>
+                    </div>
+                    {expressFee > 0 && (
+                      <div className="flex justify-between text-gray-500 text-xs">
+                        <span>رسوم المستعجل (9 ر.س)</span>
+                        <span>{expressFee.toFixed(2)} SAR</span>
                       </div>
                     )}
                     <div className="flex justify-between font-bold text-gray-900 border-t pt-1.5 mt-0.5">
@@ -1058,13 +954,7 @@ export default function Orders() {
                 disabled={busy || unsortedItems.length === 0 || unsortedItems.some(it => !it.item_id)}
                 className="w-full py-3 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary-dark transition-colors disabled:opacity-50"
               >
-                {busy ? 'Saving...' : (() => {
-                  const expCount  = unsortedItems.filter(it => it.speed === 'express' && it.item_id).length;
-                  const normCount = unsortedItems.filter(it => it.speed === 'normal'  && it.item_id).length;
-                  return expCount > 0 && normCount > 0
-                    ? '⚡ تقسيم الطلب وإنشاء طلبين منفصلين'
-                    : 'إنشاء الفاتورة';
-                })()}
+                {busy ? 'Saving...' : 'إنشاء الفاتورة'}
               </button>
             </div>
           </div>

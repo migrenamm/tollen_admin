@@ -1,3 +1,10 @@
+/**
+ * Express delivery fee: a FLAT 9 SAR charged once on an express order. Mirrors
+ * EXPRESS_FEE in the customer app (lib/utils.ts) and the edge functions.
+ * Replaced the old per-item 30% (×0.3) surcharge.
+ */
+export const EXPRESS_FEE = 9;
+
 export function formatDistanceToNow(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
