@@ -12,7 +12,7 @@ interface SupportChat {
   updated_at: string;
   profiles: { full_name: string | null; phone: string | null };
   orders: { order_number: number; status: string; created_at: string } | null;
-  lastMessage?: { content: string; is_admin: boolean; created_at: string } | null;
+  lastMessage?: { content: string; is_admin: boolean; created_at: string; attachment_type?: 'image' | 'video' | null } | null;
 }
 
 interface Message {
@@ -22,6 +22,8 @@ interface Message {
   content: string;
   is_admin: boolean;
   created_at: string;
+  attachment_url: string | null;
+  attachment_type: 'image' | 'video' | null;
 }
 
 const ORDER_STATUS_LABEL: Record<string, { label: string; cls: string }> = {
@@ -44,6 +46,8 @@ export default function Support() {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
+  // Signed URLs for private support-attachment objects, keyed by message id.
+  const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { loadChats(); }, []);
@@ -68,6 +72,28 @@ export default function Support() {
     return () => { supabase.removeChannel(channel); };
   }, [selectedChat?.id]);
 
+  // Resolve signed URLs for any attachments we haven't signed yet.
+  useEffect(() => {
+    const pending = messages.filter(m => m.attachment_url && !attachmentUrls[m.id]);
+    if (pending.length === 0) return;
+    let active = true;
+    (async () => {
+      const entries = await Promise.all(pending.map(async m => {
+        const { data } = await supabase.storage
+          .from('support-attachments')
+          .createSignedUrl(m.attachment_url as string, 3600);
+        return [m.id, data?.signedUrl] as const;
+      }));
+      if (!active) return;
+      setAttachmentUrls(prev => {
+        const next = { ...prev };
+        for (const [id, url] of entries) if (url) next[id] = url;
+        return next;
+      });
+    })();
+    return () => { active = false; };
+  }, [messages, attachmentUrls]);
+
   async function loadChats() {
     setLoading(true);
     const { data } = await supabase
@@ -86,7 +112,7 @@ export default function Support() {
       data.map(async chat => {
         const { data: msgs } = await supabase
           .from('support_messages')
-          .select('content, is_admin, created_at')
+          .select('content, is_admin, created_at, attachment_type')
           .eq('chat_id', chat.id)
           .order('created_at', { ascending: false })
           .limit(1);
@@ -191,7 +217,11 @@ export default function Support() {
                       <p className="text-xs text-primary font-medium mt-0.5">{orderNum}</p>
                       {chat.lastMessage && (
                         <p className={`text-xs mt-1 truncate ${unread ? 'text-gray-800 font-medium' : 'text-gray-400'}`}>
-                          {chat.lastMessage.is_admin ? '↩ ' : ''}{chat.lastMessage.content}
+                          {chat.lastMessage.is_admin ? '↩ ' : ''}
+                          {chat.lastMessage.content
+                            || (chat.lastMessage.attachment_type === 'video' ? '📎 Video'
+                              : chat.lastMessage.attachment_type === 'image' ? '📎 Photo'
+                              : '')}
                         </p>
                       )}
                     </div>
@@ -280,7 +310,25 @@ export default function Support() {
                             {selectedChat.profiles?.full_name ?? 'Customer'}
                           </p>
                         )}
-                        <p className="text-sm leading-relaxed">{msg.content}</p>
+                        {msg.attachment_url && msg.attachment_type === 'image' && (
+                          attachmentUrls[msg.id] ? (
+                            <a href={attachmentUrls[msg.id]} target="_blank" rel="noreferrer">
+                              <img src={attachmentUrls[msg.id]} alt="attachment"
+                                className="mb-1 max-w-[260px] max-h-[260px] rounded-lg object-cover" />
+                            </a>
+                          ) : (
+                            <div className="mb-1 w-[200px] h-[140px] rounded-lg bg-black/10 animate-pulse" />
+                          )
+                        )}
+                        {msg.attachment_url && msg.attachment_type === 'video' && (
+                          attachmentUrls[msg.id] ? (
+                            <video src={attachmentUrls[msg.id]} controls
+                              className="mb-1 max-w-[260px] max-h-[260px] rounded-lg" />
+                          ) : (
+                            <div className="mb-1 w-[200px] h-[140px] rounded-lg bg-black/10 animate-pulse" />
+                          )
+                        )}
+                        {msg.content && <p className="text-sm leading-relaxed">{msg.content}</p>}
                         <p className={`text-xs mt-1 ${isAdmin ? 'text-white/60 text-right' : 'text-gray-400'}`}>
                           {time}
                         </p>

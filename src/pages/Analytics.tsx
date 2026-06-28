@@ -85,6 +85,20 @@ interface CustomerPin {
   label: string | null;
 }
 
+// A customer-submitted request from an out-of-zone location (see app).
+interface CoverageRequest {
+  id: string;
+  lat: number;
+  lng: number;
+  full_address: string | null;
+  created_at: string;
+}
+
+// Red drop-pin for unserved-location requests on the map.
+const unservedIcon = makeDropIcon('#ef4444', '📍');
+
+type AnalyticsView = 'customers' | 'unserved';
+
 type SexFilter      = 'all' | 'male' | 'female';
 type HouseholdFilter = 'all' | 'single' | 'family' | 'business';
 type ResidenceFilter = 'all' | 'temporary' | 'permanent';
@@ -158,6 +172,11 @@ export default function Analytics() {
   const [loading, setLoading]     = useState(true);
   const [customLabelDefs, setCustomLabelDefs] = useState<LabelDef[]>([]);
   const [serviceZone, setServiceZone] = useState<[number, number][]>([]);
+
+  // Customers map vs. unserved-location requests.
+  const [view, setView] = useState<AnalyticsView>('customers');
+  const [unserved, setUnserved] = useState<CoverageRequest[]>([]);
+  const [unservedLoaded, setUnservedLoaded] = useState(false);
 
   // Filter states
   const [sex,         setSex]         = useState<SexFilter>('all');
@@ -285,6 +304,27 @@ export default function Analytics() {
 
   useEffect(() => { load(); }, []);
 
+  // Lazily load unserved-location requests the first time the view is opened.
+  async function loadUnserved() {
+    const { data } = await supabase
+      .from('coverage_requests')
+      .select('id, lat, lng, full_address, created_at')
+      .order('created_at', { ascending: false });
+    setUnserved((data ?? []).map((r: any) => ({
+      id: r.id,
+      lat: parseFloat(r.lat),
+      lng: parseFloat(r.lng),
+      full_address: r.full_address,
+      created_at: r.created_at,
+    })));
+    setUnservedLoaded(true);
+  }
+
+  function switchView(next: AnalyticsView) {
+    setView(next);
+    if (next === 'unserved' && !unservedLoaded) loadUnserved();
+  }
+
   // ── Custom label CRUD ─────────────────────────────────────────────────────
   async function persistCustomLabels(defs: LabelDef[]) {
     await supabase.from('settings').upsert({
@@ -359,13 +399,32 @@ export default function Analytics() {
       <div className="px-4 md:px-5 pt-3 md:pt-4 pb-3 bg-white border-b border-slate-100 flex-shrink-0">
         <div className="flex items-center justify-between gap-3 md:gap-4 flex-wrap">
           <div>
-            <h1 className="text-lg font-bold text-slate-800">Customer Map</h1>
+            <h1 className="text-lg font-bold text-slate-800">
+              {view === 'customers' ? 'Customer Map' : 'Unserved Locations'}
+            </h1>
             <p className="text-xs text-slate-400 mt-0.5">
-              <span className="font-semibold text-primary">{filtered.length}</span> / {pins.length} customers · spend = last 30 days
+              {view === 'customers' ? (
+                <>
+                  <span className="font-semibold text-primary">{filtered.length}</span> / {pins.length} customers · spend = last 30 days
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold text-red-500">{unserved.length}</span> request{unserved.length === 1 ? '' : 's'} from outside the service zone
+                </>
+              )}
             </p>
           </div>
 
-          {/* Label filter chips */}
+          {/* View toggle: customers vs. unserved requests */}
+          <div className="flex gap-2 items-center">
+            <Chip label="👥 Customers" active={view === 'customers'} onClick={() => switchView('customers')} />
+            <Chip label="📍 Unserved" active={view === 'unserved'} color="#ef4444" onClick={() => switchView('unserved')} />
+          </div>
+        </div>
+
+        {/* Label filter chips — customers view only */}
+        {view === 'customers' && (
+        <div className="flex items-center justify-end gap-3 md:gap-4 flex-wrap mt-2">
           <div className="flex gap-2 items-center flex-wrap">
             <Chip label="All"       active={labelFilter === 'all'}   onClick={() => setLabelFilter('all')} />
             <Chip
@@ -391,9 +450,10 @@ export default function Analytics() {
             >⊕ New label</button>
           </div>
         </div>
+        )}
 
-        {/* Add-label inline form */}
-        {showAddLabel && (
+        {/* Add-label inline form — customers view only */}
+        {view === 'customers' && showAddLabel && (
           <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap gap-2 items-end">
             <div className="flex flex-col gap-1">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Emoji</span>
@@ -447,7 +507,8 @@ export default function Analytics() {
         )}
       </div>
 
-      {/* ── Filters ── (capped + scrollable on mobile so the map keeps usable height) */}
+      {/* ── Filters ── (customers view only; capped + scrollable on mobile so the map keeps usable height) */}
+      {view === 'customers' && (
       <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 flex-shrink-0 flex flex-col gap-1.5 max-h-[40vh] overflow-y-auto md:max-h-none md:overflow-visible">
         <div className="flex flex-wrap gap-3">
           <FilterRow title="Gender">
@@ -488,6 +549,7 @@ export default function Analytics() {
           <Chip label="🆕 No orders yet" active={ordered === 'not_ordered'} onClick={() => setOrdered('not_ordered')} />
         </FilterRow>
       </div>
+      )}
 
       {/* ── Map ── */}
       <div className="flex-1 relative min-h-0">
@@ -515,7 +577,26 @@ export default function Analytics() {
             />
           )}
 
-          {filtered.map(pin => {
+          {/* Unserved-location requests (red pins) */}
+          {view === 'unserved' && unserved.map(req => (
+            <Marker key={req.id} position={[req.lat, req.lng]} icon={unservedIcon}>
+              <Popup maxWidth={260} minWidth={200}>
+                <div style={{ fontFamily: 'system-ui, sans-serif' }}>
+                  <p style={{ fontWeight: 700, color: '#ef4444', margin: '0 0 4px' }}>📍 Unserved location</p>
+                  <p style={{ fontSize: 13, color: '#334155', margin: '0 0 6px' }}>
+                    {req.full_address || `${req.lat.toFixed(5)}, ${req.lng.toFixed(5)}`}
+                  </p>
+                  <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>
+                    {new Date(req.created_at).toLocaleDateString('en-SA', {
+                      day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+                    })}
+                  </p>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
+
+          {view === 'customers' && filtered.map(pin => {
             const lDef = getLabelDef(pin.label);
             const icon = lDef && iconCache[pin.label!] ? iconCache[pin.label!] : defaultIcon;
 
@@ -625,7 +706,7 @@ export default function Analytics() {
           })}
         </MapContainer>
 
-        {!loading && filtered.length === 0 && (
+        {!loading && view === 'customers' && filtered.length === 0 && (
           <div className="absolute inset-0 z-[500] flex items-center justify-center pointer-events-none">
             <div className="bg-white rounded-2xl shadow-lg px-8 py-6 text-center">
               <p className="text-3xl mb-2">{pins.length === 0 ? '📍' : '🔍'}</p>
@@ -636,6 +717,18 @@ export default function Analytics() {
                 {pins.length === 0
                   ? 'Customers appear here once they pin their location in the app'
                   : 'Try removing one or more filters'}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {view === 'unserved' && unservedLoaded && unserved.length === 0 && (
+          <div className="absolute inset-0 z-[500] flex items-center justify-center pointer-events-none">
+            <div className="bg-white rounded-2xl shadow-lg px-8 py-6 text-center">
+              <p className="text-3xl mb-2">📍</p>
+              <p className="font-semibold text-slate-700">No unserved-location requests yet</p>
+              <p className="text-sm text-slate-400 mt-1">
+                These appear when a customer shares a location outside the service zone
               </p>
             </div>
           </div>
